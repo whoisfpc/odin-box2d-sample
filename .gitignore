@@ -1,0 +1,7 @@
+.vscode/
+day14imgs/*
+
+*.exe
+*.pdb
+ols.json
+*.rdi
