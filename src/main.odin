@@ -52,7 +52,8 @@ main :: proc() {
 	version := b2.GetVersion()
 	b2_version_info := fmt.aprintf("Box2D Version %d.%d.%d", version.major, version.minor, version.revision)
 	defer delete(b2_version_info)
-	title_cstring := strings.unsafe_string_to_cstring(b2_version_info)
+	title_cstring := strings.clone_to_cstring(b2_version_info)
+	defer delete(title_cstring)
 
 	if primary_monitor := glfw.GetPrimaryMonitor(); primary_monitor != nil {
 		_, yscale := glfw.GetMonitorContentScale(primary_monitor)
@@ -68,10 +69,10 @@ main :: proc() {
 	defer glfw.DestroyWindow(s_context.window)
 
 	glfw.MakeContextCurrent(s_context.window)
-	glfw.SwapInterval(1) // vsync
 	gl.load_up_to(3, 3, glfw.gl_set_proc_address)
 
 	// test only
+	glfw.SwapInterval(1) // vsync
 	im.CHECKVERSION()
 	im.CreateContext()
 	defer im.DestroyContext()
@@ -82,7 +83,7 @@ main :: proc() {
 
 	imgui_impl_glfw.InitForOpenGL(s_context.window, true)
 	defer imgui_impl_glfw.Shutdown()
-	imgui_impl_opengl3.Init("#version 150")
+	imgui_impl_opengl3.Init()
 	defer imgui_impl_opengl3.Shutdown()
 
 	for !glfw.WindowShouldClose(s_context.window) {
