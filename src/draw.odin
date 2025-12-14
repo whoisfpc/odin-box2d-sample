@@ -10,3 +10,14 @@ Camera :: struct {
 camera_get_default :: proc() -> Camera {
 	return Camera{center = {0, 0}, zoom = 1, width = 1280, height = 720}
 }
+
+Draw :: struct {}
+
+draw_create :: proc() -> ^Draw {
+	draw := new(Draw)
+	return draw
+}
+
+draw_destroy :: proc(draw: ^Draw) {
+	free(draw)
+}

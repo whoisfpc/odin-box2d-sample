@@ -18,6 +18,18 @@ import "vendor:glfw"
 s_context: Sample_Context
 
 @(private = "file")
+s_selection: i32
+
+@(private = "file")
+s_sample: ^Sample
+
+@(private = "file")
+s_right_mouse_down: bool
+
+@(private = "file")
+s_click_point_ws: [2]f32
+
+@(private = "file")
 assert_fcn :: proc "c" (condition, file_name: cstring, line_number: i32) -> i32 {
 	context = runtime.default_context()
 	fmt.printfln("SAMPLE ASSERTION: %s, %s, line %d", condition, file_name, line_number)
@@ -66,7 +78,7 @@ create_ui :: proc(window: glfw.WindowHandle) {
 		s_context.medium_font = im.FontAtlas_AddFontFromFileTTF(io.Fonts, font_path, medium_size, &font_cfg)
 		s_context.large_font = im.FontAtlas_AddFontFromFileTTF(io.Fonts, font_path, large_size, &font_cfg)
 
-		im.GetIO().FontDefault = s_context.regular_font
+		io.FontDefault = s_context.regular_font
 	} else {
 		fmt.printfln("\n\nERROR: samples working directory must be the top level directory\n\n")
 		os.exit(1)
@@ -131,13 +143,13 @@ scroll_callback :: proc "c" (window: glfw.WindowHandle, xoffset, yoffset: f64) {
 }
 
 main :: proc() {
+	register_all_samples()
+
 	// todo: set allocator
 	b2.SetAssertFcn(assert_fcn)
 
 	sample_context_load(&s_context)
 	s_context.worker_count = min(8, i32(enki.GetNumHardwareThreads() / 2))
-
-	// todo: sort samples
 
 	glfw.SetErrorCallback(glfw_error_callback)
 
@@ -198,37 +210,81 @@ main :: proc() {
 
 	create_ui(s_context.window)
 	defer destroy_ui()
+	s_context.draw = draw_create()
+	defer draw_destroy(s_context.draw)
+	s_context.sample_index = clamp(s_context.sample_index, 0, i32(len(g_sample_entries) - 1))
+	s_selection = s_context.sample_index
 
-	// test only
-	glfw.SwapInterval(1) // vsync
-	io := im.GetIO()
-	io.ConfigFlags += {.NavEnableKeyboard, .NavEnableGamepad}
+	gl.ClearColor(0.2, 0.2, 0.2, 1.0)
 
-	im.StyleColorsDark()
+	frame_time: f32 = 0.0
 
 	for !glfw.WindowShouldClose(s_context.window) {
-		glfw.PollEvents()
+		time1 := glfw.GetTime()
+
+		if glfw.GetKey(s_context.window, glfw.KEY_Z) == glfw.PRESS {
+			// Zoom out
+			s_context.camera.zoom = min(1.005 * s_context.camera.zoom, 100.0)
+		} else if glfw.GetKey(s_context.window, glfw.KEY_X) == glfw.PRESS {
+			// Zoom in
+			s_context.camera.zoom = min(0.995 * s_context.camera.zoom, 0.5)
+		}
+
+		width, height := glfw.GetWindowSize(s_context.window)
+		s_context.camera.width, s_context.camera.height = f32(width), f32(height)
+
+		buffer_width, buffer_height := glfw.GetFramebufferSize(s_context.window)
+		gl.Viewport(0, 0, buffer_width, buffer_height)
+
+		gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 
 		imgui_impl_opengl3.NewFrame()
 		imgui_impl_glfw.NewFrame()
+
+		io := im.GetIO()
+		io.DisplaySize.x = s_context.camera.width
+		io.DisplaySize.y = s_context.camera.height
+		io.DisplayFramebufferScale.x = f32(buffer_width) / s_context.camera.width
+		io.DisplayFramebufferScale.y = f32(buffer_height) / s_context.camera.height
+
 		im.NewFrame()
 
-		im.ShowDemoWindow()
+		// todo: sample draw and step
 
-		if im.Begin("Window containing a quit button") {
-			if im.Button("The quit button in question") {
-				glfw.SetWindowShouldClose(s_context.window, true)
+		// imgui sample test only
+		{
+			im.ShowDemoWindow()
+			if im.Begin("Window containing a quit button") {
+				if im.Button("The quit button in question") {
+					glfw.SetWindowShouldClose(s_context.window, true)
+				}
+				im.Text(
+					"Application average %.3f ms/frame (%.1f FPS)",
+					1000.0 / im.GetIO().Framerate,
+					im.GetIO().Framerate,
+				)
 			}
+			im.End()
 		}
-		im.End()
 
 		im.Render()
-		display_w, display_h := glfw.GetFramebufferSize(s_context.window)
-		gl.Viewport(0, 0, display_w, display_h)
-		gl.ClearColor(0, 0, 0, 1)
-		gl.Clear(gl.COLOR_BUFFER_BIT)
 		imgui_impl_opengl3.RenderDrawData(im.GetDrawData())
-
 		glfw.SwapBuffers(s_context.window)
+
+		glfw.PollEvents()
+		time2 := glfw.GetTime()
+		target_time := time1 + 1.0 / 60.0
+		for time2 < target_time {
+			b2.Yield()
+			time2 = glfw.GetTime()
+		}
+
+		frame_time = f32(time2 - time1)
 	}
+	if s_sample != nil {
+		free(s_sample)
+		s_sample = nil
+	}
+
+	sample_context_save(&s_context)
 }
