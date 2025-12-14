@@ -43,6 +43,11 @@ glfw_error_callback :: proc "c" (error: c.int, description: cstring) {
 }
 
 @(private = "file")
+restart_sample :: proc "contextless" () {
+	// todo
+}
+
+@(private = "file")
 create_ui :: proc(window: glfw.WindowHandle) {
 	im.CHECKVERSION()
 	im.CreateContext()
@@ -104,7 +109,47 @@ key_callback :: proc "c" (window: glfw.WindowHandle, key, scancode, action, mods
 	if im.GetIO().WantCaptureKeyboard {
 		return
 	}
-	// todo: unfinish
+
+	if action == glfw.PRESS {
+		switch key {
+		case glfw.KEY_ESCAPE:
+			// Quit
+			glfw.SetWindowShouldClose(s_context.window, gl.TRUE)
+		case glfw.KEY_LEFT:
+			s_context.camera.center.x -= 0.5
+		case glfw.KEY_RIGHT:
+			s_context.camera.center.x += 0.5
+		case glfw.KEY_DOWN:
+			s_context.camera.center.y -= 0.5
+		case glfw.KEY_UP:
+			s_context.camera.center.y += 0.5
+		case glfw.KEY_HOME:
+			camera_reset_view(&s_context.camera)
+		case glfw.KEY_R:
+			restart_sample()
+		case glfw.KEY_O:
+			s_context.single_step = true
+		case glfw.KEY_P:
+			s_context.pause = !s_context.pause
+		case glfw.KEY_LEFT_BRACKET:
+			s_selection -= 1
+			if s_selection < 0 {
+				s_selection = i32(len(g_sample_entries) - 1)
+			}
+		case glfw.KEY_RIGHT_BRACKET:
+			s_selection += 1
+			if s_selection == i32(len(g_sample_entries)) {
+				s_selection = 0
+			}
+		case glfw.KEY_TAB:
+			s_context.show_ui = !s_context.show_ui
+		case:
+			if s_sample != nil {
+				context = runtime.default_context()
+				sample_keyboard(s_sample, key)
+			}
+		}
+	}
 }
 
 @(private = "file")
@@ -139,6 +184,98 @@ scroll_callback :: proc "c" (window: glfw.WindowHandle, xoffset, yoffset: f64) {
 		s_context.camera.zoom /= 1.1
 	} else if yoffset < 0 {
 		s_context.camera.zoom *= 1.1
+	}
+}
+
+@(private = "file")
+update_ui :: proc() {
+	max_works := i32(enki.GetNumHardwareThreads())
+
+	font_size := im.GetFontSize()
+	menu_width := 13.0 * font_size
+	if s_context.show_ui {
+		im.SetNextWindowPos({s_context.camera.width - menu_width - 0.5 * font_size, 0.5 * font_size})
+		im.SetNextWindowSize({menu_width, s_context.camera.height - font_size})
+
+		im.Begin("Tools", &s_context.show_ui, {.NoMove, .NoResize, .NoCollapse})
+
+		if im.BeginTabBar("ControlTabs") {
+			if im.BeginTabItem("Controls") {
+				im.PushItemWidth(100.0)
+				im.SliderInt("Sub-steps", &s_context.sub_step_count, 1, 32)
+				im.SliderFloat("Hertz", &s_context.hertz, 5.0, 240.0, "%.0f hz")
+
+				if (im.SliderInt("Workers", &s_context.worker_count, 1, max_works)) {
+					s_context.worker_count = clamp(s_context.worker_count, 1, max_works)
+					restart_sample()
+				}
+				im.PopItemWidth()
+
+				im.Separator()
+
+				im.Checkbox("Sleep", &s_context.enable_sleep)
+				im.Checkbox("Warm Starting", &s_context.enable_warm_starting)
+				im.Checkbox("Continuous", &s_context.enable_continuous)
+
+				im.Separator()
+
+				im.Checkbox("Shapes", &s_context.debug_draw.drawShapes)
+				im.Checkbox("Joints", &s_context.debug_draw.drawJoints)
+				im.Checkbox("Joint Extras", &s_context.debug_draw.drawJointExtras)
+				im.Checkbox("Bounds", &s_context.debug_draw.drawBounds)
+				im.Checkbox("Contact Points", &s_context.debug_draw.drawContacts)
+				im.Checkbox("Contact Normals", &s_context.debug_draw.drawContactNormals)
+				im.Checkbox("Contact Features", &s_context.debug_draw.drawContactFeatures)
+				im.Checkbox("Contact Forces", &s_context.debug_draw.drawContactImpulses)
+				im.Checkbox("Friction Forces", &s_context.debug_draw.drawFrictionImpulses)
+				im.Checkbox("Mass", &s_context.debug_draw.drawMass)
+				im.Checkbox("Body Names", &s_context.debug_draw.drawBodyNames)
+				im.Checkbox("Graph Colors", &s_context.debug_draw.drawGraphColors)
+				im.Checkbox("Islands", &s_context.debug_draw.drawIslands)
+				im.Checkbox("Counters", &s_context.draw_counters)
+				im.Checkbox("Profile", &s_context.draw_profile)
+
+				im.PushItemWidth(80.0)
+				// im.InputFloat("Joint Scale", &s_context.debug_draw.jointScale)
+				// im.InputFloat("Force Scale", &s_context.debug_draw.forceScale)
+				im.PopItemWidth()
+
+				button_sz := [2]f32{-1.0, 0.0}
+
+				if im.Button("Pause (P)", button_sz) {
+					s_context.pause = !s_context.pause
+				}
+
+				if im.Button("Single Step (O)", button_sz) {
+					s_context.single_step = !s_context.single_step
+				}
+
+				if im.Button("Dump Mem Stats", button_sz) {
+					// b2World_DumpMemoryStats( s_sample->m_worldId );
+				}
+
+				if im.Button("Reset Profile", button_sz) {
+					// s_sample->ResetProfile();
+				}
+
+				if im.Button("Restart (R)", button_sz) {
+					restart_sample()
+				}
+
+				if im.Button("Quit", button_sz) {
+					glfw.SetWindowShouldClose(s_context.window, gl.TRUE)
+				}
+
+				im.EndTabItem()
+			}
+
+			if im.BeginTabItem("Samples") {
+				im.EndTabItem()
+			}
+			im.EndTabBar()
+		}
+
+		im.End()
 	}
 }
 
@@ -251,21 +388,7 @@ main :: proc() {
 
 		// todo: sample draw and step
 
-		// imgui sample test only
-		{
-			im.ShowDemoWindow()
-			if im.Begin("Window containing a quit button") {
-				if im.Button("The quit button in question") {
-					glfw.SetWindowShouldClose(s_context.window, true)
-				}
-				im.Text(
-					"Application average %.3f ms/frame (%.1f FPS)",
-					1000.0 / im.GetIO().Framerate,
-					im.GetIO().Framerate,
-				)
-			}
-			im.End()
-		}
+		update_ui()
 
 		im.Render()
 		imgui_impl_opengl3.RenderDrawData(im.GetDrawData())

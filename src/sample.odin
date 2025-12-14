@@ -7,19 +7,30 @@ import b2 "vendor:box2d"
 import "vendor:glfw"
 
 Sample_Context :: struct {
-	window:       glfw.WindowHandle,
-	camera:       Camera,
-	draw:         ^Draw,
-	ui_scale:     f32,
-	worker_count: i32,
+	window:               glfw.WindowHandle,
+	camera:               Camera,
+	draw:                 ^Draw,
+	ui_scale:             f32, // 1.0
+	hertz:                f32, // 60.0
+	sub_step_count:       i32, // 4
+	worker_count:         i32, // 1
+	restart:              bool,
+	pause:                bool,
+	single_step:          bool,
+	draw_counters:        bool,
+	draw_profile:         bool,
+	enable_warm_starting: bool,
+	enable_continuous:    bool,
+	enable_sleep:         bool,
+	show_ui:              bool,
 
 
 	// These are persisted
-	sample_index: i32,
-	debug_draw:   b2.DebugDraw,
-	regular_font: ^im.Font,
-	medium_font:  ^im.Font,
-	large_font:   ^im.Font,
+	sample_index:         i32,
+	debug_draw:           b2.DebugDraw,
+	regular_font:         ^im.Font,
+	medium_font:          ^im.Font,
+	large_font:           ^im.Font,
 }
 
 Sample :: struct {}
@@ -50,8 +61,13 @@ register_all_samples :: proc() {
 
 sample_context_load :: proc(ctx: ^Sample_Context) {
 	ctx.camera = camera_get_default()
+	ctx.show_ui = true
 }
 
 sample_context_save :: proc(ctx: ^Sample_Context) {
+
+}
+
+sample_keyboard :: proc(sample: ^Sample, key: i32) {
 
 }
