@@ -270,6 +270,45 @@ update_ui :: proc() {
 			}
 
 			if im.BeginTabItem("Samples") {
+				leaf_node_flags: im.TreeNodeFlags = {.OpenOnArrow, .OpenOnDoubleClick, .Leaf, .NoTreePushOnOpen}
+				node_flags: im.TreeNodeFlags = {.OpenOnArrow, .OpenOnDoubleClick}
+
+				category_index := 0
+				category := g_sample_entries[category_index].category
+				i := 0
+				for i < len(g_sample_entries) {
+					category_selected := category == g_sample_entries[s_context.sample_index].category
+					node_selection_flags: im.TreeNodeFlags = category_selected ? {.Selected} : {}
+					node_open := im.TreeNodeEx(category, node_flags + node_selection_flags)
+					if node_open {
+						for i < len(g_sample_entries) && category == g_sample_entries[i].category {
+							selection_flags: im.TreeNodeFlags = {}
+							if s_context.sample_index == i32(i) {
+								selection_flags = {.Selected}
+							}
+							im.TreeNodeExPtr(
+								rawptr(uintptr(i)),
+								leaf_node_flags + selection_flags,
+								"%s",
+								g_sample_entries[i],
+							)
+							if im.IsItemClicked() {
+								s_selection = i32(i)
+							}
+							i += 1
+						}
+						im.TreePop()
+					} else {
+						for i < len(g_sample_entries) && category == g_sample_entries[i].category {
+							i += 1
+						}
+					}
+
+					if i < len(g_sample_entries) {
+						category = g_sample_entries[i].category
+						category_index = i
+					}
+				}
 				im.EndTabItem()
 			}
 			im.EndTabBar()
