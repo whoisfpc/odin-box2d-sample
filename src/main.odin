@@ -370,12 +370,7 @@ main :: proc() {
 
 	glfw.MakeContextCurrent(s_context.window)
 	gl.load_up_to(3, 3, glfw.gl_set_proc_address)
-
-	{
-		gl_version_str := gl.GetString(gl.VERSION)
-		glsl_version_str := gl.GetString(gl.SHADING_LANGUAGE_VERSION)
-		fmt.printfln("OpenGL %s, GLSL %s", gl_version_str, glsl_version_str)
-	}
+	dump_info_gl()
 
 	glfw.SetWindowSizeCallback(s_context.window, resize_window_callback)
 	glfw.SetKeyCallback(s_context.window, key_callback)
@@ -426,6 +421,33 @@ main :: proc() {
 		im.NewFrame()
 
 		// todo: sample draw and step
+		if s_sample == nil {
+			s_sample = g_sample_entries[s_context.sample_index].create_fcn(&s_context)
+		}
+
+		/*
+		s_sample->ResetText();
+
+		const SampleEntry& entry = g_sampleEntries[s_context.sampleIndex];
+		s_sample->DrawColoredTextLine(b2_colorYellow, "%s : %s", entry.category, entry.name );
+
+		s_sample->Step();
+		*/
+
+		draw_screen_string(
+			s_context.draw,
+			5.0,
+			s_context.camera.height - 10.0,
+			.SeaGreen,
+			"%.1f ms - step %d - camera (%g, %g, %g)",
+			1000.0 * frame_time,
+			s_sample.step_count,
+			s_context.camera.center.x,
+			s_context.camera.center.y,
+			s_context.camera.zoom,
+		)
+
+		flush_draw(s_context.draw, &s_context.camera)
 
 		update_ui()
 
@@ -442,6 +464,8 @@ main :: proc() {
 		}
 
 		frame_time = f32(time2 - time1)
+
+		free_all(context.temp_allocator)
 	}
 	if s_sample != nil {
 		free(s_sample)

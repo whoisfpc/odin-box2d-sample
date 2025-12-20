@@ -68,13 +68,14 @@ s_create_shader_from_string :: proc(source: cstring, type: u32) -> u32 {
 		fmt.printfln("Error compiling shader of type %d!", type)
 		print_log_gl(shader)
 		gl.DeleteShader(shader)
+		assert(false)
 		return 0
 	}
 
 	return shader
 }
 
-create_shader_from_string :: proc(vertex_string, fragment_string: cstring) -> u32 {
+create_program_from_strings :: proc(vertex_string, fragment_string: cstring) -> u32 {
 	vertex := s_create_shader_from_string(vertex_string, gl.VERTEX_SHADER)
 	if vertex == 0 {
 		return 0
@@ -103,7 +104,7 @@ create_shader_from_string :: proc(vertex_string, fragment_string: cstring) -> u3
 	return program
 }
 
-create_shader_from_files :: proc(vertex_path, fragment_path: cstring) -> u32 {
+create_program_from_files :: proc(vertex_path, fragment_path: cstring) -> u32 {
 	vertex_data, vertex_err := os.read_entire_file_from_path(string(vertex_path), context.allocator)
 	if vertex_err != nil {
 		fmt.printfln("Error opening %v", vertex_err)
@@ -120,5 +121,5 @@ create_shader_from_files :: proc(vertex_path, fragment_path: cstring) -> u32 {
 	fragment_cstr := strings.clone_to_cstring(transmute(string)fragment_data)
 	defer delete(vertex_cstr)
 	defer delete(fragment_cstr)
-	return create_shader_from_string(vertex_cstr, fragment_cstr)
+	return create_program_from_strings(vertex_cstr, fragment_cstr)
 }

@@ -1,5 +1,6 @@
 package main
 
+import enki "../odin-enkiTS"
 import im "../odin-imgui"
 import "core:slice"
 import "core:strings"
@@ -33,7 +34,18 @@ Sample_Context :: struct {
 	large_font:           ^im.Font,
 }
 
-Sample :: struct {}
+Sample :: struct {
+	ctx:          ^Sample_Context,
+	camera:       ^Camera,
+	draw:         ^Draw,
+	scheduler:    ^enki.TaskScheduler,
+	tasks:        []enki.TaskSet,
+	thread_count: int,
+	step_count:   i32,
+	variant:      union {
+		^BenchmarkBarrel24,
+	},
+}
 
 Sample_Entry :: struct {
 	category:   cstring,
@@ -41,7 +53,7 @@ Sample_Entry :: struct {
 	create_fcn: sample_create_fcn_type,
 }
 
-sample_create_fcn_type :: #type proc(ctx: ^Sample_Context) -> Sample
+sample_create_fcn_type :: #type proc(ctx: ^Sample_Context) -> ^Sample
 
 g_sample_entries: [dynamic]Sample_Entry
 
@@ -51,7 +63,7 @@ register_sample :: proc(category, name: cstring, fcn: sample_create_fcn_type) {
 
 register_all_samples :: proc() {
 	// todo: add all samples
-	register_sample("placeholder", "test", nil)
+	register_sample("Benchmark", "Barrel 2.4", BenchmarkBarrel24_create)
 	slice.sort_by(g_sample_entries[:], proc(i, j: Sample_Entry) -> bool {
 		if i.category != j.category {
 			return i.category < j.category
