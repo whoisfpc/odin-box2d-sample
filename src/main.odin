@@ -46,7 +46,7 @@ glfw_error_callback :: proc "c" (error: c.int, description: cstring) {
 
 @(private = "file")
 restart_sample :: proc() {
-	free(s_sample)
+	sample_variant_destroy(s_sample)
 	s_sample = nil
 	s_ctx.restart = true
 	s_sample = g_sample_entries[s_ctx.sample_index].create_fcn(&s_ctx)
@@ -377,7 +377,6 @@ main :: proc() {
 		fmt.eprintln("Failed to initialize GLFW")
 		os.exit(-1)
 	}
-	defer glfw.Terminate()
 
 	glfw.WindowHint(glfw.CONTEXT_VERSION_MAJOR, 3)
 	glfw.WindowHint(glfw.CONTEXT_VERSION_MINOR, 3)
@@ -404,7 +403,6 @@ main :: proc() {
 		glfw.Terminate()
 		os.exit(-1)
 	}
-	defer glfw.DestroyWindow(s_ctx.window)
 
 	glfw.MakeContextCurrent(s_ctx.window)
 	gl.load_up_to(3, 3, glfw.gl_set_proc_address)
@@ -418,9 +416,7 @@ main :: proc() {
 	glfw.SetScrollCallback(s_ctx.window, scroll_callback)
 
 	create_ui(s_ctx.window)
-	defer destroy_ui()
 	s_ctx.draw = draw_create()
-	defer draw_destroy(s_ctx.draw)
 	s_ctx.sample_index = clamp(s_ctx.sample_index, 0, i32(len(g_sample_entries) - 1))
 	s_selection = s_ctx.sample_index
 
@@ -524,9 +520,14 @@ main :: proc() {
 		free_all(context.temp_allocator)
 	}
 	if s_sample != nil {
-		free(s_sample)
+		sample_variant_destroy(s_sample)
 		s_sample = nil
 	}
+
+	draw_destroy(s_ctx.draw)
+	destroy_ui()
+	glfw.DestroyWindow(s_ctx.window)
+	glfw.Terminate()
 
 	sample_context_save(&s_ctx)
 }

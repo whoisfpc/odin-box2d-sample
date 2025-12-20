@@ -3,7 +3,6 @@ package main
 import enki "../odin-enkiTS"
 import im "../odin-imgui"
 import "core:slice"
-import "core:strings"
 import b2 "vendor:box2d"
 import "vendor:glfw"
 
@@ -34,16 +33,31 @@ Sample_Context :: struct {
 	large_font:           ^im.Font,
 }
 
+MAX_TASKS :: 64
+MAX_THREADS :: 64
+
 Sample :: struct {
-	ctx:          ^Sample_Context,
-	camera:       ^Camera,
-	draw:         ^Draw,
-	scheduler:    ^enki.TaskScheduler,
-	tasks:        []enki.TaskSet,
-	thread_count: int,
-	world_id:     b2.WorldId,
-	step_count:   i32,
-	variant:      union {
+	ctx:               ^Sample_Context,
+	camera:            ^Camera,
+	draw:              ^Draw,
+	scheduler:         ^enki.TaskScheduler,
+	tasks:             []^enki.TaskSet,
+	// todo: need destroy all tasks before set to zero
+	task_count:        int,
+	thread_count:      i32,
+
+	// box2d
+	mouse_body_id:     b2.BodyId,
+	world_id:          b2.WorldId,
+	mouse_joint_id:    b2.JointId,
+	mouse_point:       b2.Vec2,
+	mouse_force_scale: f32,
+	step_count:        i32,
+	max_profile:       b2.Profile,
+	total_profile:     b2.Profile,
+	text_line:         int,
+	text_increment:    int,
+	variant:           union {
 		^BenchmarkBarrel24,
 	},
 }
@@ -87,6 +101,113 @@ sample_context_load :: proc(ctx: ^Sample_Context) {
 
 sample_context_save :: proc(ctx: ^Sample_Context) {
 
+}
+
+sample_base_create :: proc(ctx: ^Sample_Context, sample: ^Sample) {
+	sample.ctx = ctx
+	sample.camera = &ctx.camera
+	sample.draw = ctx.draw
+
+	sample.scheduler = enki.NewTaskScheduler()
+	enki.InitTaskSchedulerNumThreads(sample.scheduler, u32(ctx.worker_count))
+	sample.tasks = make([]^enki.TaskSet, MAX_TASKS)
+	sample.task_count = 0
+	sample.thread_count = 1 + ctx.worker_count
+
+	sample.world_id = b2.nullWorldId
+
+	sample.text_increment = 26
+	sample.text_line = sample.text_increment
+	sample.mouse_joint_id = b2.nullJointId
+
+	sample.step_count = 0
+	sample.mouse_body_id = b2.nullBodyId
+	sample.mouse_point = {0, 0}
+	sample.mouse_force_scale = 100
+
+	sample_create_world(sample)
+}
+
+sample_base_destroy :: proc(sample: ^Sample) {
+	if b2.IS_NON_NULL(sample.world_id) {
+		b2.DestroyWorld(sample.world_id)
+	}
+	for i in 0 ..< sample.task_count {
+		enki.DeleteTaskSet(sample.scheduler, sample.tasks[i])
+	}
+	enki.DeleteTaskScheduler(sample.scheduler)
+	delete(sample.tasks)
+}
+
+sample_variant_destroy :: proc(sample: ^Sample) {
+	sample_base_destroy(sample)
+	// todo: deal with sample.variant
+	free(sample)
+}
+
+sample_create_world :: proc(sample: ^Sample) {
+	if b2.IS_NON_NULL(sample.world_id) {
+		b2.DestroyWorld(sample.world_id)
+		sample.world_id = b2.nullWorldId
+	}
+
+	world_def := b2.DefaultWorldDef()
+	world_def.workerCount = sample.ctx.worker_count
+	// todo: callback signature missmatch
+	// world_def.enqueueTask = enqueue_task
+	// world_def.finishTask = finish_task
+	world_def.userTaskContext = sample
+	world_def.enableSleep = sample.ctx.enable_sleep
+
+	// todo experimental
+	// worldDef.enableContactSoftening = true;
+	sample.world_id = b2.CreateWorld(world_def)
+}
+
+@(private = "file")
+enqueue_task :: proc "c" (
+	task: b2.TaskCallback, // must use enki.TaskExecuteRange, b2.TaskCallback cause compiler crash!
+	itemCount: i32,
+	minRange: i32,
+	taskContext: rawptr,
+	userContext: rawptr,
+) -> rawptr {
+
+	TaskExecuteRange :: proc "c" (start_: u32, end_: u32, threadnum_: u32, pArgs_: rawptr) {
+
+	}
+
+	sample := cast(^Sample)userContext
+	if sample.task_count < MAX_TASKS {
+		sample_task := enki.CreateTaskSet(sample.scheduler, TaskExecuteRange)
+		enki.SetSetSizeTaskSet(sample_task, u32(itemCount))
+		enki.SetMinRangeTaskSet(sample_task, u32(minRange))
+		enki.SetArgsTaskSet(sample_task, taskContext)
+		enki.AddTaskSet(sample.scheduler, sample_task)
+		sample.tasks[sample.task_count] = sample_task
+		sample.task_count += 1
+		return sample_task
+	} else {
+		// This is not fatal but the maxTasks should be increased
+		assert_contextless(false)
+		task(0, itemCount, 0, taskContext)
+		return nil
+	}
+}
+
+@(private = "file")
+finish_task :: proc "c" (taskPtr: rawptr, userContext: rawptr) {
+	if taskPtr != nil {
+		sample_task := cast(^enki.TaskSet)taskPtr
+		sample := cast(^Sample)userContext
+		enki.WaitForTaskSet(sample.scheduler, sample_task)
+		// enki.DeleteTaskSet(sample_task)
+	}
+}
+
+
+sample_reset_text :: proc(sample: ^Sample) {
+	sample.text_line = sample.text_increment
 }
 
 sample_keyboard :: proc(sample: ^Sample, key: i32) {
