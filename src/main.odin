@@ -14,8 +14,10 @@ import gl "vendor:OpenGL"
 import b2 "vendor:box2d"
 import "vendor:glfw"
 
+g_context: runtime.Context
+
 @(private = "file")
-s_context: Sample_Context
+s_ctx: Sample_Context
 
 @(private = "file")
 s_selection: i32
@@ -31,20 +33,24 @@ s_click_point_ws: [2]f32
 
 @(private = "file")
 assert_fcn :: proc "c" (condition, file_name: cstring, line_number: i32) -> i32 {
-	context = runtime.default_context()
+	context = g_context
 	fmt.printfln("SAMPLE ASSERTION: %s, %s, line %d", condition, file_name, line_number)
 	return 1
 }
 
 @(private = "file")
 glfw_error_callback :: proc "c" (error: c.int, description: cstring) {
-	context = runtime.default_context()
+	context = g_context
 	fmt.eprintfln("GLFW error occurred. Code: %d. Description: %s", error, description)
 }
 
 @(private = "file")
-restart_sample :: proc "contextless" () {
-	// todo
+restart_sample :: proc() {
+	free(s_sample)
+	s_sample = nil
+	s_ctx.restart = true
+	s_sample = g_sample_entries[s_ctx.sample_index].create_fcn(&s_ctx)
+	s_ctx.restart = false
 }
 
 @(private = "file")
@@ -62,7 +68,7 @@ create_ui :: proc(window: glfw.WindowHandle) {
 		assert(false)
 	}
 
-	im.Style_ScaleAllSizes(im.GetStyle(), s_context.ui_scale)
+	im.Style_ScaleAllSizes(im.GetStyle(), s_ctx.ui_scale)
 	font_path :: "data/droid_sans.ttf"
 
 	if os.exists(font_path) {
@@ -71,19 +77,19 @@ create_ui :: proc(window: glfw.WindowHandle) {
 			OversampleH          = 2,
 			OversampleV          = 1,
 			GlyphMaxAdvanceX     = max(f32),
-			RasterizerMultiply   = s_context.ui_scale,
+			RasterizerMultiply   = s_ctx.ui_scale,
 			RasterizerDensity    = 1,
 			EllipsisChar         = ~im.Wchar(0),
 		}
-		regular_size := math.floor(13.0 * s_context.ui_scale)
-		medium_size := math.floor(40.0 * s_context.ui_scale)
-		large_size := math.floor(64.0 * s_context.ui_scale)
+		regular_size := math.floor(13.0 * s_ctx.ui_scale)
+		medium_size := math.floor(40.0 * s_ctx.ui_scale)
+		large_size := math.floor(64.0 * s_ctx.ui_scale)
 		io := im.GetIO()
-		s_context.regular_font = im.FontAtlas_AddFontFromFileTTF(io.Fonts, font_path, regular_size, &font_cfg)
-		s_context.medium_font = im.FontAtlas_AddFontFromFileTTF(io.Fonts, font_path, medium_size, &font_cfg)
-		s_context.large_font = im.FontAtlas_AddFontFromFileTTF(io.Fonts, font_path, large_size, &font_cfg)
+		s_ctx.regular_font = im.FontAtlas_AddFontFromFileTTF(io.Fonts, font_path, regular_size, &font_cfg)
+		s_ctx.medium_font = im.FontAtlas_AddFontFromFileTTF(io.Fonts, font_path, medium_size, &font_cfg)
+		s_ctx.large_font = im.FontAtlas_AddFontFromFileTTF(io.Fonts, font_path, large_size, &font_cfg)
 
-		io.FontDefault = s_context.regular_font
+		io.FontDefault = s_ctx.regular_font
 	} else {
 		fmt.printfln("\n\nERROR: samples working directory must be the top level directory\n\n")
 		os.exit(1)
@@ -99,8 +105,8 @@ destroy_ui :: proc() {
 
 @(private = "file")
 resize_window_callback :: proc "c" (window: glfw.WindowHandle, width, heigth: c.int) {
-	s_context.camera.width = f32(width)
-	s_context.camera.height = f32(heigth)
+	s_ctx.camera.width = f32(width)
+	s_ctx.camera.height = f32(heigth)
 }
 
 @(private = "file")
@@ -114,23 +120,26 @@ key_callback :: proc "c" (window: glfw.WindowHandle, key, scancode, action, mods
 		switch key {
 		case glfw.KEY_ESCAPE:
 			// Quit
-			glfw.SetWindowShouldClose(s_context.window, gl.TRUE)
+			glfw.SetWindowShouldClose(s_ctx.window, gl.TRUE)
 		case glfw.KEY_LEFT:
-			s_context.camera.center.x -= 0.5
+			s_ctx.camera.center.x -= 0.5
 		case glfw.KEY_RIGHT:
-			s_context.camera.center.x += 0.5
+			s_ctx.camera.center.x += 0.5
 		case glfw.KEY_DOWN:
-			s_context.camera.center.y -= 0.5
+			s_ctx.camera.center.y -= 0.5
 		case glfw.KEY_UP:
-			s_context.camera.center.y += 0.5
+			s_ctx.camera.center.y += 0.5
 		case glfw.KEY_HOME:
-			camera_reset_view(&s_context.camera)
+			camera_reset_view(&s_ctx.camera)
 		case glfw.KEY_R:
-			restart_sample()
+			{
+				context = g_context
+				restart_sample()
+			}
 		case glfw.KEY_O:
-			s_context.single_step = true
+			s_ctx.single_step = true
 		case glfw.KEY_P:
-			s_context.pause = !s_context.pause
+			s_ctx.pause = !s_ctx.pause
 		case glfw.KEY_LEFT_BRACKET:
 			s_selection -= 1
 			if s_selection < 0 {
@@ -142,10 +151,10 @@ key_callback :: proc "c" (window: glfw.WindowHandle, key, scancode, action, mods
 				s_selection = 0
 			}
 		case glfw.KEY_TAB:
-			s_context.show_ui = !s_context.show_ui
+			s_ctx.show_ui = !s_ctx.show_ui
 		case:
 			if s_sample != nil {
-				context = runtime.default_context()
+				context = g_context
 				sample_keyboard(s_sample, key)
 			}
 		}
@@ -170,7 +179,7 @@ mouse_button_callback :: proc "c" (window: glfw.WindowHandle, button, action, mo
 
 	// Use the mouse to move things around.
 	if button == glfw.MOUSE_BUTTON_1 {
-		pw := convert_screen_to_world(&s_context.camera, ps)
+		pw := convert_screen_to_world(&s_ctx.camera, ps)
 		if action == glfw.PRESS {
 			// s_sample->MouseDown( pw, button, modifiers );
 		}
@@ -181,7 +190,7 @@ mouse_button_callback :: proc "c" (window: glfw.WindowHandle, button, action, mo
 
 	} else if button == glfw.MOUSE_BUTTON_2 {
 		if action == glfw.PRESS {
-			s_click_point_ws = convert_screen_to_world(&s_context.camera, ps)
+			s_click_point_ws = convert_screen_to_world(&s_ctx.camera, ps)
 			s_right_mouse_down = true
 		}
 
@@ -197,12 +206,12 @@ cursor_pos_callback :: proc "c" (window: glfw.WindowHandle, xpos, ypos: f64) {
 	imgui_impl_glfw.CursorPosCallback(window, f64(ps.x), f64(ps.y))
 	// todo: unfinish
 
-	pw := convert_screen_to_world(&s_context.camera, ps)
+	pw := convert_screen_to_world(&s_ctx.camera, ps)
 	// s_sample->MouseMove( pw );
 	if s_right_mouse_down {
 		diff := pw - s_click_point_ws
-		s_context.camera.center -= diff
-		s_click_point_ws = convert_screen_to_world(&s_context.camera, ps)
+		s_ctx.camera.center -= diff
+		s_click_point_ws = convert_screen_to_world(&s_ctx.camera, ps)
 	}
 }
 
@@ -214,9 +223,9 @@ scroll_callback :: proc "c" (window: glfw.WindowHandle, xoffset, yoffset: f64) {
 	}
 
 	if yoffset > 0 {
-		s_context.camera.zoom /= 1.1
+		s_ctx.camera.zoom /= 1.1
 	} else if yoffset < 0 {
-		s_context.camera.zoom *= 1.1
+		s_ctx.camera.zoom *= 1.1
 	}
 }
 
@@ -226,47 +235,47 @@ update_ui :: proc() {
 
 	font_size := im.GetFontSize()
 	menu_width := 13.0 * font_size
-	if s_context.show_ui {
-		im.SetNextWindowPos({s_context.camera.width - menu_width - 0.5 * font_size, 0.5 * font_size})
-		im.SetNextWindowSize({menu_width, s_context.camera.height - font_size})
+	if s_ctx.show_ui {
+		im.SetNextWindowPos({s_ctx.camera.width - menu_width - 0.5 * font_size, 0.5 * font_size})
+		im.SetNextWindowSize({menu_width, s_ctx.camera.height - font_size})
 
-		im.Begin("Tools", &s_context.show_ui, {.NoMove, .NoResize, .NoCollapse})
+		im.Begin("Tools", &s_ctx.show_ui, {.NoMove, .NoResize, .NoCollapse})
 
 		if im.BeginTabBar("ControlTabs") {
 			if im.BeginTabItem("Controls") {
 				im.PushItemWidth(100.0)
-				im.SliderInt("Sub-steps", &s_context.sub_step_count, 1, 32)
-				im.SliderFloat("Hertz", &s_context.hertz, 5.0, 240.0, "%.0f hz")
+				im.SliderInt("Sub-steps", &s_ctx.sub_step_count, 1, 32)
+				im.SliderFloat("Hertz", &s_ctx.hertz, 5.0, 240.0, "%.0f hz")
 
-				if (im.SliderInt("Workers", &s_context.worker_count, 1, max_works)) {
-					s_context.worker_count = clamp(s_context.worker_count, 1, max_works)
+				if (im.SliderInt("Workers", &s_ctx.worker_count, 1, max_works)) {
+					s_ctx.worker_count = clamp(s_ctx.worker_count, 1, max_works)
 					restart_sample()
 				}
 				im.PopItemWidth()
 
 				im.Separator()
 
-				im.Checkbox("Sleep", &s_context.enable_sleep)
-				im.Checkbox("Warm Starting", &s_context.enable_warm_starting)
-				im.Checkbox("Continuous", &s_context.enable_continuous)
+				im.Checkbox("Sleep", &s_ctx.enable_sleep)
+				im.Checkbox("Warm Starting", &s_ctx.enable_warm_starting)
+				im.Checkbox("Continuous", &s_ctx.enable_continuous)
 
 				im.Separator()
 
-				im.Checkbox("Shapes", &s_context.debug_draw.drawShapes)
-				im.Checkbox("Joints", &s_context.debug_draw.drawJoints)
-				im.Checkbox("Joint Extras", &s_context.debug_draw.drawJointExtras)
-				im.Checkbox("Bounds", &s_context.debug_draw.drawBounds)
-				im.Checkbox("Contact Points", &s_context.debug_draw.drawContacts)
-				im.Checkbox("Contact Normals", &s_context.debug_draw.drawContactNormals)
-				im.Checkbox("Contact Features", &s_context.debug_draw.drawContactFeatures)
-				im.Checkbox("Contact Forces", &s_context.debug_draw.drawContactImpulses)
-				im.Checkbox("Friction Forces", &s_context.debug_draw.drawFrictionImpulses)
-				im.Checkbox("Mass", &s_context.debug_draw.drawMass)
-				im.Checkbox("Body Names", &s_context.debug_draw.drawBodyNames)
-				im.Checkbox("Graph Colors", &s_context.debug_draw.drawGraphColors)
-				im.Checkbox("Islands", &s_context.debug_draw.drawIslands)
-				im.Checkbox("Counters", &s_context.draw_counters)
-				im.Checkbox("Profile", &s_context.draw_profile)
+				im.Checkbox("Shapes", &s_ctx.debug_draw.drawShapes)
+				im.Checkbox("Joints", &s_ctx.debug_draw.drawJoints)
+				im.Checkbox("Joint Extras", &s_ctx.debug_draw.drawJointExtras)
+				im.Checkbox("Bounds", &s_ctx.debug_draw.drawBounds)
+				im.Checkbox("Contact Points", &s_ctx.debug_draw.drawContacts)
+				im.Checkbox("Contact Normals", &s_ctx.debug_draw.drawContactNormals)
+				im.Checkbox("Contact Features", &s_ctx.debug_draw.drawContactFeatures)
+				im.Checkbox("Contact Forces", &s_ctx.debug_draw.drawContactImpulses)
+				im.Checkbox("Friction Forces", &s_ctx.debug_draw.drawFrictionImpulses)
+				im.Checkbox("Mass", &s_ctx.debug_draw.drawMass)
+				im.Checkbox("Body Names", &s_ctx.debug_draw.drawBodyNames)
+				im.Checkbox("Graph Colors", &s_ctx.debug_draw.drawGraphColors)
+				im.Checkbox("Islands", &s_ctx.debug_draw.drawIslands)
+				im.Checkbox("Counters", &s_ctx.draw_counters)
+				im.Checkbox("Profile", &s_ctx.draw_profile)
 
 				im.PushItemWidth(80.0)
 				// im.InputFloat("Joint Scale", &s_context.debug_draw.jointScale)
@@ -276,18 +285,19 @@ update_ui :: proc() {
 				button_sz := [2]f32{-1.0, 0.0}
 
 				if im.Button("Pause (P)", button_sz) {
-					s_context.pause = !s_context.pause
+					s_ctx.pause = !s_ctx.pause
 				}
 
 				if im.Button("Single Step (O)", button_sz) {
-					s_context.single_step = !s_context.single_step
+					s_ctx.single_step = !s_ctx.single_step
 				}
 
 				if im.Button("Dump Mem Stats", button_sz) {
-					// b2World_DumpMemoryStats( s_sample->m_worldId );
+					b2.World_DumpMemoryStats(s_sample.world_id)
 				}
 
 				if im.Button("Reset Profile", button_sz) {
+					// todo
 					// s_sample->ResetProfile();
 				}
 
@@ -296,7 +306,7 @@ update_ui :: proc() {
 				}
 
 				if im.Button("Quit", button_sz) {
-					glfw.SetWindowShouldClose(s_context.window, gl.TRUE)
+					glfw.SetWindowShouldClose(s_ctx.window, gl.TRUE)
 				}
 
 				im.EndTabItem()
@@ -310,13 +320,13 @@ update_ui :: proc() {
 				category := g_sample_entries[category_index].category
 				i := 0
 				for i < len(g_sample_entries) {
-					category_selected := category == g_sample_entries[s_context.sample_index].category
+					category_selected := category == g_sample_entries[s_ctx.sample_index].category
 					node_selection_flags: im.TreeNodeFlags = category_selected ? {.Selected} : {}
 					node_open := im.TreeNodeEx(category, node_flags + node_selection_flags)
 					if node_open {
 						for i < len(g_sample_entries) && category == g_sample_entries[i].category {
 							selection_flags: im.TreeNodeFlags = {}
-							if s_context.sample_index == i32(i) {
+							if s_ctx.sample_index == i32(i) {
 								selection_flags = {.Selected}
 							}
 							im.TreeNodeExPtr(
@@ -352,13 +362,14 @@ update_ui :: proc() {
 }
 
 main :: proc() {
+	g_context = context
 	register_all_samples()
 
 	// todo: set allocator
 	b2.SetAssertFcn(assert_fcn)
 
-	sample_context_load(&s_context)
-	s_context.worker_count = min(8, i32(enki.GetNumHardwareThreads() / 2))
+	sample_context_load(&s_ctx)
+	s_ctx.worker_count = min(8, i32(enki.GetNumHardwareThreads() / 2))
 
 	glfw.SetErrorCallback(glfw_error_callback)
 
@@ -384,60 +395,54 @@ main :: proc() {
 	defer delete(title_cstring)
 
 	if primary_monitor := glfw.GetPrimaryMonitor(); primary_monitor != nil {
-		_, s_context.ui_scale = glfw.GetMonitorContentScale(primary_monitor)
+		_, s_ctx.ui_scale = glfw.GetMonitorContentScale(primary_monitor)
 	}
 
-	s_context.window = glfw.CreateWindow(
-		i32(s_context.camera.width),
-		i32(s_context.camera.height),
-		title_cstring,
-		nil,
-		nil,
-	)
-	if s_context.window == nil {
+	s_ctx.window = glfw.CreateWindow(i32(s_ctx.camera.width), i32(s_ctx.camera.height), title_cstring, nil, nil)
+	if s_ctx.window == nil {
 		fmt.eprintln("Failed to create GLFW window.")
 		glfw.Terminate()
 		os.exit(-1)
 	}
-	defer glfw.DestroyWindow(s_context.window)
+	defer glfw.DestroyWindow(s_ctx.window)
 
-	glfw.MakeContextCurrent(s_context.window)
+	glfw.MakeContextCurrent(s_ctx.window)
 	gl.load_up_to(3, 3, glfw.gl_set_proc_address)
 	dump_info_gl()
 
-	glfw.SetWindowSizeCallback(s_context.window, resize_window_callback)
-	glfw.SetKeyCallback(s_context.window, key_callback)
-	glfw.SetCharCallback(s_context.window, char_callback)
-	glfw.SetMouseButtonCallback(s_context.window, mouse_button_callback)
-	glfw.SetCursorPosCallback(s_context.window, cursor_pos_callback)
-	glfw.SetScrollCallback(s_context.window, scroll_callback)
+	glfw.SetWindowSizeCallback(s_ctx.window, resize_window_callback)
+	glfw.SetKeyCallback(s_ctx.window, key_callback)
+	glfw.SetCharCallback(s_ctx.window, char_callback)
+	glfw.SetMouseButtonCallback(s_ctx.window, mouse_button_callback)
+	glfw.SetCursorPosCallback(s_ctx.window, cursor_pos_callback)
+	glfw.SetScrollCallback(s_ctx.window, scroll_callback)
 
-	create_ui(s_context.window)
+	create_ui(s_ctx.window)
 	defer destroy_ui()
-	s_context.draw = draw_create()
-	defer draw_destroy(s_context.draw)
-	s_context.sample_index = clamp(s_context.sample_index, 0, i32(len(g_sample_entries) - 1))
-	s_selection = s_context.sample_index
+	s_ctx.draw = draw_create()
+	defer draw_destroy(s_ctx.draw)
+	s_ctx.sample_index = clamp(s_ctx.sample_index, 0, i32(len(g_sample_entries) - 1))
+	s_selection = s_ctx.sample_index
 
 	gl.ClearColor(0.2, 0.2, 0.2, 1.0)
 
 	frame_time: f32 = 0.0
 
-	for !glfw.WindowShouldClose(s_context.window) {
+	for !glfw.WindowShouldClose(s_ctx.window) {
 		time1 := glfw.GetTime()
 
-		if glfw.GetKey(s_context.window, glfw.KEY_Z) == glfw.PRESS {
+		if glfw.GetKey(s_ctx.window, glfw.KEY_Z) == glfw.PRESS {
 			// Zoom out
-			s_context.camera.zoom = min(1.005 * s_context.camera.zoom, 100.0)
-		} else if glfw.GetKey(s_context.window, glfw.KEY_X) == glfw.PRESS {
+			s_ctx.camera.zoom = min(1.005 * s_ctx.camera.zoom, 100.0)
+		} else if glfw.GetKey(s_ctx.window, glfw.KEY_X) == glfw.PRESS {
 			// Zoom in
-			s_context.camera.zoom = min(0.995 * s_context.camera.zoom, 0.5)
+			s_ctx.camera.zoom = min(0.995 * s_ctx.camera.zoom, 0.5)
 		}
 
-		width, height := glfw.GetWindowSize(s_context.window)
-		s_context.camera.width, s_context.camera.height = f32(width), f32(height)
+		width, height := glfw.GetWindowSize(s_ctx.window)
+		s_ctx.camera.width, s_ctx.camera.height = f32(width), f32(height)
 
-		buffer_width, buffer_height := glfw.GetFramebufferSize(s_context.window)
+		buffer_width, buffer_height := glfw.GetFramebufferSize(s_ctx.window)
 		gl.Viewport(0, 0, buffer_width, buffer_height)
 
 		gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
@@ -446,17 +451,17 @@ main :: proc() {
 		imgui_impl_glfw.NewFrame()
 
 		io := im.GetIO()
-		io.DisplaySize.x = s_context.camera.width
-		io.DisplaySize.y = s_context.camera.height
-		io.DisplayFramebufferScale.x = f32(buffer_width) / s_context.camera.width
-		io.DisplayFramebufferScale.y = f32(buffer_height) / s_context.camera.height
+		io.DisplaySize.x = s_ctx.camera.width
+		io.DisplaySize.y = s_ctx.camera.height
+		io.DisplayFramebufferScale.x = f32(buffer_width) / s_ctx.camera.width
+		io.DisplayFramebufferScale.y = f32(buffer_height) / s_ctx.camera.height
 
 		im.NewFrame()
 
 		// todo: sample draw and step
 		if s_sample == nil {
 			// delayed creation because imgui doesn't create fonts until NewFrame() is called
-			s_sample = g_sample_entries[s_context.sample_index].create_fcn(&s_context)
+			s_sample = g_sample_entries[s_ctx.sample_index].create_fcn(&s_ctx)
 		}
 
 		/*
@@ -469,25 +474,25 @@ main :: proc() {
 		*/
 
 		draw_screen_string(
-			s_context.draw,
+			s_ctx.draw,
 			5.0,
-			s_context.camera.height - 10.0,
+			s_ctx.camera.height - 10.0,
 			.SeaGreen,
 			"%.1f ms - step %d - camera (%g, %g, %g)",
 			1000.0 * frame_time,
 			s_sample.step_count,
-			s_context.camera.center.x,
-			s_context.camera.center.y,
-			s_context.camera.zoom,
+			s_ctx.camera.center.x,
+			s_ctx.camera.center.y,
+			s_ctx.camera.zoom,
 		)
 
-		flush_draw(s_context.draw, &s_context.camera)
+		flush_draw(s_ctx.draw, &s_ctx.camera)
 
 		update_ui()
 
 		im.Render()
 		imgui_impl_opengl3.RenderDrawData(im.GetDrawData())
-		glfw.SwapBuffers(s_context.window)
+		glfw.SwapBuffers(s_ctx.window)
 
 		// todo
 		/*
@@ -523,5 +528,5 @@ main :: proc() {
 		s_sample = nil
 	}
 
-	sample_context_save(&s_context)
+	sample_context_save(&s_ctx)
 }

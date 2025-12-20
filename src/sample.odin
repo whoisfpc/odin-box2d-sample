@@ -41,6 +41,7 @@ Sample :: struct {
 	scheduler:    ^enki.TaskScheduler,
 	tasks:        []enki.TaskSet,
 	thread_count: int,
+	world_id:     b2.WorldId,
 	step_count:   i32,
 	variant:      union {
 		^BenchmarkBarrel24,
