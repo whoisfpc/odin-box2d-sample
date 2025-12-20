@@ -164,6 +164,31 @@ mouse_button_callback :: proc "c" (window: glfw.WindowHandle, button, action, mo
 		return
 	}
 	// todo: unfinish
+
+	xpos, ypos := glfw.GetCursorPos(window)
+	ps := [2]f32{f32(xpos), f32(ypos)}
+
+	// Use the mouse to move things around.
+	if button == glfw.MOUSE_BUTTON_1 {
+		pw := convert_screen_to_world(&s_context.camera, ps)
+		if action == glfw.PRESS {
+			// s_sample->MouseDown( pw, button, modifiers );
+		}
+
+		if action == glfw.RELEASE {
+			// s_sample->MouseUp( pw, button );
+		}
+
+	} else if button == glfw.MOUSE_BUTTON_2 {
+		if action == glfw.PRESS {
+			s_click_point_ws = convert_screen_to_world(&s_context.camera, ps)
+			s_right_mouse_down = true
+		}
+
+		if action == glfw.RELEASE {
+			s_right_mouse_down = false
+		}
+	}
 }
 
 @(private = "file")
@@ -171,6 +196,14 @@ cursor_pos_callback :: proc "c" (window: glfw.WindowHandle, xpos, ypos: f64) {
 	ps := [2]f32{f32(xpos), f32(ypos)}
 	imgui_impl_glfw.CursorPosCallback(window, f64(ps.x), f64(ps.y))
 	// todo: unfinish
+
+	pw := convert_screen_to_world(&s_context.camera, ps)
+	// s_sample->MouseMove( pw );
+	if s_right_mouse_down {
+		diff := pw - s_click_point_ws
+		s_context.camera.center -= diff
+		s_click_point_ws = convert_screen_to_world(&s_context.camera, ps)
+	}
 }
 
 @(private = "file")
@@ -422,6 +455,7 @@ main :: proc() {
 
 		// todo: sample draw and step
 		if s_sample == nil {
+			// delayed creation because imgui doesn't create fonts until NewFrame() is called
 			s_sample = g_sample_entries[s_context.sample_index].create_fcn(&s_context)
 		}
 
@@ -455,7 +489,24 @@ main :: proc() {
 		imgui_impl_opengl3.RenderDrawData(im.GetDrawData())
 		glfw.SwapBuffers(s_context.window)
 
+		// todo
+		/*
+		if ( s_selection != s_context.sampleIndex )
+		{
+			ResetView( &s_context.camera );
+			s_context.sampleIndex = s_selection;
+			s_context.subStepCount = 4;
+			s_context.debugDraw.drawJoints = true;
+
+			delete s_sample;
+			s_sample = nullptr;
+			s_sample = g_sampleEntries[s_context.sampleIndex].createFcn( &s_context );
+		}
+		*/
+
 		glfw.PollEvents()
+
+		// Limit frame rate to 60Hz
 		time2 := glfw.GetTime()
 		target_time := time1 + 1.0 / 60.0
 		for time2 < target_time {

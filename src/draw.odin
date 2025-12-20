@@ -27,6 +27,34 @@ camera_reset_view :: proc "contextless" (camera: ^Camera) {
 	camera.zoom = 1.0
 }
 
+convert_screen_to_world :: proc "contextless" (camera: ^Camera, screen_point: [2]f32) -> [2]f32 {
+	w := camera.width
+	h := camera.height
+	uv := [2]f32{screen_point.x / w, (h - screen_point.y) / h}
+
+	ratio := w / h
+	extents := [2]f32{camera.zoom * ratio, camera.zoom}
+	lower := camera.center - extents
+	upper := camera.center + extents
+
+	pw := (1.0 - uv) * lower + uv * upper
+	return pw
+}
+
+convert_world_to_screen :: proc "contextless" (camera: ^Camera, world_point: [2]f32) -> [2]f32 {
+	w := camera.width
+	h := camera.height
+
+	ratio := w / h
+	extents := [2]f32{camera.zoom * ratio, camera.zoom}
+	lower := camera.center - extents
+	upper := camera.center + extents
+
+	uv := (world_point - lower) / (upper - lower)
+	ps := [2]f32{uv.x * w, (1.0 - uv.y) * h}
+	return ps
+}
+
 Draw :: struct {
 	font: Font,
 }
