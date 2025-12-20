@@ -95,6 +95,7 @@ create_program_from_strings :: proc(vertex_string, fragment_string: cstring) -> 
 	if success == 0 {
 		fmt.printfln("glLinkProgram:")
 		print_log_gl(program)
+		assert(false)
 		return 0
 	}
 
