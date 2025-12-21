@@ -6,3 +6,5 @@
 ols.json
 *.rdi
 imgui.ini
+
+box2d_memory.txt

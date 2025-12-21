@@ -111,6 +111,13 @@ sample_base_create :: proc(ctx: ^Sample_Context, sample: ^Sample) {
 	sample.scheduler = enki.NewTaskScheduler()
 	enki.InitTaskSchedulerNumThreads(sample.scheduler, u32(ctx.worker_count))
 	sample.tasks = make([]^enki.TaskSet, MAX_TASKS)
+	for i in 0 ..< MAX_TASKS {
+		// crate tasks
+		wrapper := new(Task_Wrapper)
+		sample_task := enki.CreateTaskSet(sample.scheduler, task_wrapper_func)
+		enki.SetArgsTaskSet(sample_task, wrapper)
+		sample.tasks[i] = sample_task
+	}
 	sample.task_count = 0
 	sample.thread_count = 1 + ctx.worker_count
 
@@ -133,6 +140,9 @@ sample_base_destroy :: proc(sample: ^Sample) {
 		b2.DestroyWorld(sample.world_id)
 	}
 	for i in 0 ..< sample.task_count {
+		params := enki.GetParamsTaskSet(sample.tasks[i])
+		wrapper := cast(^Task_Wrapper)params.pArgs
+		free(wrapper)
 		enki.DeleteTaskSet(sample.scheduler, sample.tasks[i])
 	}
 	enki.DeleteTaskScheduler(sample.scheduler)
@@ -153,15 +163,25 @@ sample_create_world :: proc(sample: ^Sample) {
 
 	world_def := b2.DefaultWorldDef()
 	world_def.workerCount = sample.ctx.worker_count
-	// todo: callback signature missmatch
-	// world_def.enqueueTask = enqueue_task
-	// world_def.finishTask = finish_task
+	world_def.enqueueTask = enqueue_task
+	world_def.finishTask = finish_task
 	world_def.userTaskContext = sample
 	world_def.enableSleep = sample.ctx.enable_sleep
 
 	// todo experimental
 	// worldDef.enableContactSoftening = true;
 	sample.world_id = b2.CreateWorld(world_def)
+}
+
+Task_Wrapper :: struct {
+	task:        b2.TaskCallback,
+	taskContext: rawptr,
+}
+
+@(private = "file")
+task_wrapper_func :: proc "c" (start_: u32, end_: u32, threadnum_: u32, pArgs_: rawptr) {
+	wrapper := cast(^Task_Wrapper)pArgs_
+	wrapper.task(i32(start_), i32(end_), threadnum_, wrapper.taskContext)
 }
 
 @(private = "file")
@@ -173,18 +193,19 @@ enqueue_task :: proc "c" (
 	userContext: rawptr,
 ) -> rawptr {
 
-	TaskExecuteRange :: proc "c" (start_: u32, end_: u32, threadnum_: u32, pArgs_: rawptr) {
-
-	}
-
 	sample := cast(^Sample)userContext
 	if sample.task_count < MAX_TASKS {
-		sample_task := enki.CreateTaskSet(sample.scheduler, TaskExecuteRange)
+		sample_task := sample.tasks[sample.task_count]
 		enki.SetSetSizeTaskSet(sample_task, u32(itemCount))
 		enki.SetMinRangeTaskSet(sample_task, u32(minRange))
-		enki.SetArgsTaskSet(sample_task, taskContext)
+		params := enki.GetParamsTaskSet(sample_task)
+		// can not juse assign task to enki Task, otherwise it will let odin compiler crash!
+		// so create a wrapper to call real b2.TaskCallback
+		wrapper := cast(^Task_Wrapper)params.pArgs
+		wrapper.taskContext = taskContext
+		wrapper.task = task
+
 		enki.AddTaskSet(sample.scheduler, sample_task)
-		sample.tasks[sample.task_count] = sample_task
 		sample.task_count += 1
 		return sample_task
 	} else {
@@ -201,7 +222,6 @@ finish_task :: proc "c" (taskPtr: rawptr, userContext: rawptr) {
 		sample_task := cast(^enki.TaskSet)taskPtr
 		sample := cast(^Sample)userContext
 		enki.WaitForTaskSet(sample.scheduler, sample_task)
-		// enki.DeleteTaskSet(sample_task)
 	}
 }
 
