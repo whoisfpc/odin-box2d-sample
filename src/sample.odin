@@ -244,6 +244,25 @@ sample_reset_text :: proc(sample: ^Sample) {
 	sample.text_line = sample.text_increment
 }
 
+sample_draw_colored_text_line :: proc(sample: ^Sample, color: b2.HexColor, format: string, args: ..any) {
+	if !sample.ctx.show_ui {
+		return
+	}
+	draw_screen_string(sample.draw, 5, f32(sample.text_line), color, format, ..args)
+	sample.text_line += sample.text_increment
+}
+
 sample_keyboard :: proc(sample: ^Sample, key: i32) {
 
+}
+
+sample_base_step :: proc(sample: ^Sample) {
+
+}
+
+sample_variant_step :: proc(sample: ^Sample) {
+	#partial switch v in sample.variant {
+	case:
+		sample_base_step(sample)
+	}
 }

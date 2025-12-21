@@ -454,20 +454,20 @@ main :: proc() {
 
 		im.NewFrame()
 
-		// todo: sample draw and step
 		if s_sample == nil {
 			// delayed creation because imgui doesn't create fonts until NewFrame() is called
 			s_sample = g_sample_entries[s_ctx.sample_index].create_fcn(&s_ctx)
 		}
 
-		/*
-		s_sample->ResetText();
-
-		const SampleEntry& entry = g_sampleEntries[s_context.sampleIndex];
-		s_sample->DrawColoredTextLine(b2_colorYellow, "%s : %s", entry.category, entry.name );
-
-		s_sample->Step();
-		*/
+		sample_reset_text(s_sample)
+		sample_draw_colored_text_line(
+			s_sample,
+			.Yellow,
+			"%s : %s",
+			g_sample_entries[s_ctx.sample_index].category,
+			g_sample_entries[s_ctx.sample_index].name,
+		)
+		sample_variant_step(s_sample)
 
 		draw_screen_string(
 			s_ctx.draw,
