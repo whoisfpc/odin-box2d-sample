@@ -3,6 +3,7 @@ package main
 import enki "../odin-enkiTS"
 import im "../odin-imgui"
 import "base:intrinsics"
+import "core:fmt"
 import "core:slice"
 import "core:strings"
 import b2 "vendor:box2d"
@@ -110,6 +111,8 @@ sample_context_load :: proc(ctx: ^Sample_Context) {
 	ctx.debug_draw.DrawPointFcn = DrawPointFcn
 	ctx.debug_draw.DrawStringFcn = DrawStringFcn
 	ctx.debug_draw.userContext = ctx
+	ctx.debug_draw.drawShapes = true
+	ctx.debug_draw.drawJoints = true
 }
 
 @(private = "file")
@@ -162,7 +165,7 @@ DrawPointFcn :: proc "c" (p: b2.Vec2, size: f32, color: b2.HexColor, ctx: rawptr
 
 @(private = "file")
 DrawStringFcn :: proc "c" (p: b2.Vec2, s: cstring, color: b2.HexColor, ctx: rawptr) {
-
+	// todo
 }
 
 sample_context_save :: proc(ctx: ^Sample_Context) {
