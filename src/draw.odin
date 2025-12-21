@@ -1,9 +1,8 @@
 package main
 
-import "core:container/lru"
 import "core:fmt"
+import "core:mem"
 import os "core:os/os2"
-import "core:strings"
 import gl "vendor:OpenGL"
 import b2 "vendor:box2d"
 import stbi "vendor:stb/image"
@@ -380,30 +379,9 @@ draw_solid_polygon :: proc "contextless" (
 	data.transform = transform
 
 	n := vertexCount < 8 ? vertexCount : 8
-	switch n {
-	case 8:
-		data.p8 = vertices[7]
-		fallthrough
-	case 7:
-		data.p7 = vertices[6]
-		fallthrough
-	case 6:
-		data.p6 = vertices[5]
-		fallthrough
-	case 5:
-		data.p5 = vertices[4]
-		fallthrough
-	case 4:
-		data.p4 = vertices[3]
-		fallthrough
-	case 3:
-		data.p3 = vertices[2]
-		fallthrough
-	case 2:
-		data.p2 = vertices[1]
-		fallthrough
-	case 1:
-		data.p1 = vertices[0]
+	ps := &data.p1
+	for i in 0 ..< n {
+		mem.ptr_offset(ps, i)^ = vertices[i]
 	}
 
 	data.count = n
