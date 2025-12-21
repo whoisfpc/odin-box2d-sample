@@ -2,6 +2,7 @@ package main
 
 import enki "../odin-enkiTS"
 import im "../odin-imgui"
+import "base:intrinsics"
 import "core:slice"
 import b2 "vendor:box2d"
 import "vendor:glfw"
@@ -149,10 +150,23 @@ sample_base_destroy :: proc(sample: ^Sample) {
 	delete(sample.tasks)
 }
 
+sample_generic_create :: proc(ctx: ^Sample_Context, $T: typeid) -> ^T where intrinsics.type_is_struct(T),
+	intrinsics.type_has_field(T, "variant"),
+	intrinsics.type_has_field(T, "sample"),
+	intrinsics.type_field_type(T, "sample") == Sample {
+	sample := new(T)
+	sample.variant = sample
+	sample_base_create(ctx, &sample.sample)
+	return sample
+}
+
 sample_variant_destroy :: proc(sample: ^Sample) {
-	sample_base_destroy(sample)
-	// todo: deal with sample.variant
-	free(sample)
+	switch v in sample.variant {
+	case ^BenchmarkBarrel24:
+		BenchmarkBarrel24_destroy(v)
+	case:
+		panic("unimplement destroy")
+	}
 }
 
 sample_create_world :: proc(sample: ^Sample) {

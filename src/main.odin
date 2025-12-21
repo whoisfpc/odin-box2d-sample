@@ -333,7 +333,7 @@ update_ui :: proc() {
 								rawptr(uintptr(i)),
 								leaf_node_flags + selection_flags,
 								"%s",
-								g_sample_entries[i],
+								g_sample_entries[i].name,
 							)
 							if im.IsItemClicked() {
 								s_selection = i32(i)
