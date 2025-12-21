@@ -56,6 +56,16 @@ convert_world_to_screen :: proc "contextless" (camera: ^Camera, world_point: [2]
 }
 
 Draw :: struct {
+	// TODO
+	/*
+	Background background;
+	PointRender points;
+	LineRender lines;
+	CircleRender hollowCircles;
+	SolidCircles circles;
+	Capsules capsules;
+	Polygons polygons;
+	*/
 	font: Font,
 }
 
@@ -68,6 +78,10 @@ draw_create :: proc() -> ^Draw {
 draw_destroy :: proc(draw: ^Draw) {
 	font_destroy(&draw.font)
 	free(draw)
+}
+
+draw_line :: proc "contextless" (draw: ^Draw, p1, p2: b2.Vec2, color: b2.HexColor) {
+	// todo
 }
 
 FONT_FIRST_CHARACTER :: 32
@@ -295,4 +309,14 @@ flush_text :: proc(font: ^Font, camera: ^Camera) {
 
 	check_opengl()
 	clear(&font.vertices)
+}
+
+get_view_bounds :: proc(camera: ^Camera) -> b2.AABB {
+	if camera.height > 0 || camera.width > 0 {
+		return b2.AABB{lowerBound = b2.Vec2_zero, upperBound = b2.Vec2_zero}
+	}
+	return b2.AABB {
+		lowerBound = convert_screen_to_world(camera, {0, camera.height}),
+		upperBound = convert_screen_to_world(camera, {camera.width, 0}),
+	}
 }

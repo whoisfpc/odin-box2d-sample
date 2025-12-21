@@ -4,6 +4,7 @@ import enki "../odin-enkiTS"
 import im "../odin-imgui"
 import "base:intrinsics"
 import "core:slice"
+import "core:strings"
 import b2 "vendor:box2d"
 import "vendor:glfw"
 
@@ -98,6 +99,71 @@ sample_context_load :: proc(ctx: ^Sample_Context) {
 	ctx.enable_sleep = true
 	ctx.show_ui = true
 	ctx.camera = camera_get_default()
+
+	ctx.debug_draw = b2.DefaultDebugDraw()
+	ctx.debug_draw.DrawPolygonFcn = DrawPolygonFcn
+	ctx.debug_draw.DrawSolidPolygonFcn = DrawSolidPolygonFcn
+	ctx.debug_draw.DrawCircleFcn = DrawCircleFcn
+	ctx.debug_draw.DrawSolidCircleFcn = DrawSolidCircleFcn
+	ctx.debug_draw.DrawSolidCapsuleFcn = DrawSolidCapsuleFcn
+	ctx.debug_draw.DrawSegmentFcn = DrawSegmentFcn
+	ctx.debug_draw.DrawTransformFcn = DrawTransformFcn
+	ctx.debug_draw.DrawPointFcn = DrawPointFcn
+	ctx.debug_draw.DrawStringFcn = DrawStringFcn
+	ctx.debug_draw.userContext = ctx
+}
+
+@(private = "file")
+DrawPolygonFcn :: proc "c" (vertices: [^]b2.Vec2, vertexCount: i32, color: b2.HexColor, ctx: rawptr) {
+	// todo
+}
+
+@(private = "file")
+DrawSolidPolygonFcn :: proc "c" (
+	transform: b2.Transform,
+	vertices: [^]b2.Vec2,
+	vertexCount: i32,
+	radius: f32,
+	colr: b2.HexColor,
+	ctx: rawptr,
+) {
+	// todo
+}
+
+@(private = "file")
+DrawCircleFcn :: proc "c" (center: b2.Vec2, radius: f32, color: b2.HexColor, ctx: rawptr) {
+	// todo
+}
+
+@(private = "file")
+DrawSolidCircleFcn :: proc "c" (transform: b2.Transform, radius: f32, color: b2.HexColor, ctx: rawptr) {
+	// todo
+}
+
+@(private = "file")
+DrawSolidCapsuleFcn :: proc "c" (p1, p2: b2.Vec2, radius: f32, color: b2.HexColor, ctx: rawptr) {
+	// todo
+}
+
+@(private = "file")
+DrawSegmentFcn :: proc "c" (p1, p2: b2.Vec2, color: b2.HexColor, ctx: rawptr) {
+	sample_ctx := cast(^Sample_Context)ctx
+	draw_line(sample_ctx.draw, p1, p2, color)
+}
+
+@(private = "file")
+DrawTransformFcn :: proc "c" (transform: b2.Transform, ctx: rawptr) {
+	// todo
+}
+
+@(private = "file")
+DrawPointFcn :: proc "c" (p: b2.Vec2, size: f32, color: b2.HexColor, ctx: rawptr) {
+	// todo
+}
+
+@(private = "file")
+DrawStringFcn :: proc "c" (p: b2.Vec2, s: cstring, color: b2.HexColor, ctx: rawptr) {
+
 }
 
 sample_context_save :: proc(ctx: ^Sample_Context) {
@@ -244,6 +310,10 @@ sample_reset_text :: proc(sample: ^Sample) {
 	sample.text_line = sample.text_increment
 }
 
+sample_draw_text_line :: proc(sample: ^Sample, format: string, args: ..any) {
+	sample_draw_colored_text_line(sample, .White, format, ..args)
+}
+
 sample_draw_colored_text_line :: proc(sample: ^Sample, color: b2.HexColor, format: string, args: ..any) {
 	if !sample.ctx.show_ui {
 		return
@@ -259,7 +329,85 @@ sample_reset_profile :: proc "contextless" (sample: ^Sample) {
 }
 
 sample_base_step :: proc(sample: ^Sample) {
+	ctx := sample.ctx
+	time_step := ctx.hertz > 0 ? 1.0 / ctx.hertz : 0
+	if ctx.pause {
+		if ctx.single_step {
+			ctx.single_step = false
+		} else {
+			time_step = 0
+		}
 
+		if ctx.show_ui {
+			sample_draw_text_line(sample, "****PAUSED****")
+			sample.text_line += sample.text_increment
+		}
+	}
+
+	if b2.IS_NON_NULL(sample.mouse_joint_id) && !b2.Joint_IsValid(sample.mouse_joint_id) {
+		// The world or attached body was destroyed.
+		sample.mouse_joint_id = b2.nullJointId
+		if b2.IS_NON_NULL(sample.mouse_body_id) {
+			b2.DestroyBody(sample.mouse_body_id)
+			sample.mouse_body_id = b2.nullBodyId
+		}
+	}
+
+	if b2.IS_NON_NULL(sample.mouse_body_id) && time_step > 0 {
+		b2.Body_SetTargetTransform(sample.mouse_body_id, {sample.mouse_point, b2.Rot_identity}, time_step)
+	}
+
+	ctx.debug_draw.drawingBounds = get_view_bounds(&ctx.camera)
+
+	b2.World_EnableSleeping(sample.world_id, ctx.enable_sleep)
+	b2.World_EnableWarmStarting(sample.world_id, ctx.enable_warm_starting)
+	b2.World_EnableContinuous(sample.world_id, ctx.enable_continuous)
+
+	b2.World_Step(sample.world_id, time_step, ctx.sub_step_count)
+	sample.task_count = 0
+
+	b2.World_Draw(sample.world_id, &ctx.debug_draw)
+
+	if time_step > 0 {
+		sample.step_count += 1
+	}
+
+	if ctx.draw_counters {
+		s := b2.World_GetCounters(sample.world_id)
+		sample_draw_text_line(
+			sample,
+			"bodies/shapes/contacts/joints = %d/%d/%d/%d",
+			s.bodyCount,
+			s.shapeCount,
+			s.contactCount,
+			s.jointCount,
+		)
+		sample_draw_text_line(sample, "islands/tasks = %d/%d", s.islandCount, s.taskCount)
+		sample_draw_text_line(sample, "tree height static/movable = %d/%d", s.staticTreeHeight, s.treeHeight)
+
+		total_count := 0
+		color_count := size_of(s.colorCounts) / size_of(s.colorCounts[0])
+		sb, err := strings.builder_make()
+		assert(err == nil)
+		defer strings.builder_destroy(&sb)
+		strings.write_string(&sb, "colors: ")
+		for i in 0 ..< color_count {
+			strings.write_int(&sb, int(s.colorCounts[i]))
+			strings.write_rune(&sb, '/')
+			total_count += int(s.colorCounts[i])
+		}
+		strings.write_rune(&sb, '[')
+		strings.write_int(&sb, total_count)
+		strings.write_rune(&sb, ']')
+		color_counts_str := strings.to_string(sb)
+		sample_draw_text_line(sample, color_counts_str)
+		sample_draw_text_line(sample, "stack allocator size = %d K", s.stackUsed / 1024)
+		sample_draw_text_line(sample, "total allocation = %d K", s.byteCount / 1024)
+	}
+
+	// todo
+	// Track maximum profile times
+	//m_context->drawProfile
 }
 
 sample_variant_step :: proc(sample: ^Sample) {
