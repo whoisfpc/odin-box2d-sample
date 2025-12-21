@@ -252,8 +252,10 @@ sample_draw_colored_text_line :: proc(sample: ^Sample, color: b2.HexColor, forma
 	sample.text_line += sample.text_increment
 }
 
-sample_keyboard :: proc(sample: ^Sample, key: i32) {
-
+sample_reset_profile :: proc "contextless" (sample: ^Sample) {
+	sample.total_profile = {}
+	sample.max_profile = {}
+	sample.step_count = 0
 }
 
 sample_base_step :: proc(sample: ^Sample) {
@@ -265,4 +267,24 @@ sample_variant_step :: proc(sample: ^Sample) {
 	case:
 		sample_base_step(sample)
 	}
+}
+
+sample_variant_update_gui :: proc(sample: ^Sample) {
+
+}
+
+sample_variant_keyboard :: proc(sample: ^Sample, key: i32) {
+
+}
+
+sample_variant_mouse_down :: proc "contextless" (sample: ^Sample, p: [2]f32, button, mods: i32) {
+
+}
+
+sample_variant_mouse_up :: proc "contextless" (sample: ^Sample, p: [2]f32, button: i32) {
+
+}
+
+sample_variant_mouse_move :: proc "contextless" (sample: ^Sample, p: [2]f32) {
+
 }

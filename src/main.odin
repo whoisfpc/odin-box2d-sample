@@ -155,7 +155,7 @@ key_callback :: proc "c" (window: glfw.WindowHandle, key, scancode, action, mods
 		case:
 			if s_sample != nil {
 				context = g_context
-				sample_keyboard(s_sample, key)
+				sample_variant_keyboard(s_sample, key)
 			}
 		}
 	}
@@ -172,7 +172,6 @@ mouse_button_callback :: proc "c" (window: glfw.WindowHandle, button, action, mo
 	if im.GetIO().WantCaptureMouse {
 		return
 	}
-	// todo: unfinish
 
 	xpos, ypos := glfw.GetCursorPos(window)
 	ps := [2]f32{f32(xpos), f32(ypos)}
@@ -181,11 +180,11 @@ mouse_button_callback :: proc "c" (window: glfw.WindowHandle, button, action, mo
 	if button == glfw.MOUSE_BUTTON_1 {
 		pw := convert_screen_to_world(&s_ctx.camera, ps)
 		if action == glfw.PRESS {
-			// s_sample->MouseDown( pw, button, modifiers );
+			sample_variant_mouse_down(s_sample, pw, button, mods)
 		}
 
 		if action == glfw.RELEASE {
-			// s_sample->MouseUp( pw, button );
+			sample_variant_mouse_up(s_sample, pw, button)
 		}
 
 	} else if button == glfw.MOUSE_BUTTON_2 {
@@ -204,10 +203,9 @@ mouse_button_callback :: proc "c" (window: glfw.WindowHandle, button, action, mo
 cursor_pos_callback :: proc "c" (window: glfw.WindowHandle, xpos, ypos: f64) {
 	ps := [2]f32{f32(xpos), f32(ypos)}
 	imgui_impl_glfw.CursorPosCallback(window, f64(ps.x), f64(ps.y))
-	// todo: unfinish
 
 	pw := convert_screen_to_world(&s_ctx.camera, ps)
-	// s_sample->MouseMove( pw );
+	sample_variant_mouse_move(s_sample, pw)
 	if s_right_mouse_down {
 		diff := pw - s_click_point_ws
 		s_ctx.camera.center -= diff
@@ -297,8 +295,7 @@ update_ui :: proc() {
 				}
 
 				if im.Button("Reset Profile", button_sz) {
-					// todo
-					// s_sample->ResetProfile();
+					sample_reset_profile(s_sample)
 				}
 
 				if im.Button("Restart (R)", button_sz) {
@@ -490,20 +487,16 @@ main :: proc() {
 		imgui_impl_opengl3.RenderDrawData(im.GetDrawData())
 		glfw.SwapBuffers(s_ctx.window)
 
-		// todo
-		/*
-		if ( s_selection != s_context.sampleIndex )
-		{
-			ResetView( &s_context.camera );
-			s_context.sampleIndex = s_selection;
-			s_context.subStepCount = 4;
-			s_context.debugDraw.drawJoints = true;
+		if s_selection != s_ctx.sample_index {
+			camera_reset_view(&s_ctx.camera)
+			s_ctx.sample_index = s_selection
+			s_ctx.sub_step_count = 4
+			s_ctx.debug_draw.drawJoints = true
 
-			delete s_sample;
-			s_sample = nullptr;
-			s_sample = g_sampleEntries[s_context.sampleIndex].createFcn( &s_context );
+			sample_variant_destroy(s_sample)
+			s_sample = nil
+			s_sample = g_sample_entries[s_ctx.sample_index].create_fcn(&s_ctx)
 		}
-		*/
 
 		glfw.PollEvents()
 
