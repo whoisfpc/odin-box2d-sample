@@ -126,10 +126,12 @@ DrawSolidPolygonFcn :: proc "c" (
 	vertices: [^]b2.Vec2,
 	vertexCount: i32,
 	radius: f32,
-	colr: b2.HexColor,
+	color: b2.HexColor,
 	ctx: rawptr,
 ) {
 	// todo
+	sample_ctx := cast(^Sample_Context)ctx
+	draw_solid_polygon(sample_ctx.draw, transform, vertices, vertexCount, radius, color)
 }
 
 @(private = "file")

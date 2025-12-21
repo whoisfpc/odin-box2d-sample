@@ -70,22 +70,45 @@ Line_Render :: struct {
 	projection_uniform: i32,
 }
 
+POLYGON_BATCH_SIZE :: 2048
+
+Polygon :: struct {
+	transform:      b2.Transform,
+	p1, p2, p3, p4: b2.Vec2,
+	p5, p6, p7, p8: b2.Vec2,
+	count:          i32,
+	radius:         f32,
+
+	// keep color small
+	color:          RGBA8,
+}
+
+Polygons :: struct {
+	polygons:          [dynamic]Polygon,
+	vaoId:             u32,
+	vboIds:            [2]u32,
+	programId:         u32,
+	projectionUniform: i32,
+	pixelScaleUniform: i32,
+}
+
 Draw :: struct {
 	// TODO
 	// Background background;
 	// PointRender points;
-	lines: Line_Render,
+	lines:    Line_Render,
 	// CircleRender hollowCircles;
 	// SolidCircles circles;
 	// Capsules capsules;
-	// Polygons polygons;
-	font:  Font,
+	polygons: Polygons,
+	font:     Font,
 }
 
 draw_create :: proc() -> ^Draw {
 	draw := new(Draw)
 	// todo
 	draw.lines = create_line_render()
+	draw.polygons = create_polygons()
 	draw.font = font_create("data/droid_sans.ttf", 18.0)
 	return draw
 }
@@ -93,6 +116,7 @@ draw_create :: proc() -> ^Draw {
 draw_destroy :: proc(draw: ^Draw) {
 	// todo
 	destroy_line_render(&draw.lines)
+	destroy_polygons(&draw.polygons)
 	font_destroy(&draw.font)
 	free(draw)
 }
@@ -161,11 +185,232 @@ destroy_line_render :: proc(render: ^Line_Render) {
 	render^ = {}
 }
 
+@(private = "file")
+flush_lines :: proc(render: ^Line_Render, camera: ^Camera) {
+	if len(render.points) == 0 {
+		return
+	}
+	assert(len(render.points) % 2 == 0)
+
+	gl.Enable(gl.BLEND)
+	gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+
+	gl.UseProgram(render.program_id)
+
+	proj: [16]f32
+	BuildProjectionMatrix(camera, &proj, 0.1)
+
+	gl.UniformMatrix4fv(render.projection_uniform, 1, gl.FALSE, raw_data(&proj))
+
+	gl.BindVertexArray(render.vao_id)
+
+	gl.BindBuffer(gl.ARRAY_BUFFER, render.vbo_id)
+
+	base := 0
+	count := len(render.points)
+	for (count > 0) {
+		batchCount := min(count, LINE_BATCH_SIZE)
+		gl.BufferSubData(gl.ARRAY_BUFFER, 0, batchCount * size_of(Vertex_Data), raw_data(render.points[base:]))
+
+		gl.DrawArrays(gl.LINES, 0, i32(batchCount))
+
+		check_opengl()
+
+		count -= LINE_BATCH_SIZE
+		base += LINE_BATCH_SIZE
+	}
+
+	gl.BindBuffer(gl.ARRAY_BUFFER, 0)
+	gl.BindVertexArray(0)
+	gl.UseProgram(0)
+
+	gl.Disable(gl.BLEND)
+
+	clear(&render.points)
+}
+
 draw_line :: proc "contextless" (draw: ^Draw, p1, p2: b2.Vec2, color: b2.HexColor) {
 	context = g_context
 	rgba := make_rgba8(color, 1.0)
 	append(&draw.lines.points, Vertex_Data{p1, rgba})
 	append(&draw.lines.points, Vertex_Data{p2, rgba})
+}
+
+@(private = "file")
+create_polygons :: proc() -> Polygons {
+	render: Polygons
+
+	render.polygons = make([dynamic]Polygon, 0, POLYGON_BATCH_SIZE)
+	render.programId = create_program_from_files("data/solid_polygon.vs", "data/solid_polygon.fs")
+	render.projectionUniform = gl.GetUniformLocation(render.programId, "projectionMatrix")
+	render.pixelScaleUniform = gl.GetUniformLocation(render.programId, "pixelScale")
+
+	vertexAttribute: u32 = 0
+	instanceTransform: u32 = 1
+	instancePoint12: u32 = 2
+	instancePoint34: u32 = 3
+	instancePoint56: u32 = 4
+	instancePoint78: u32 = 5
+	instancePointCount: u32 = 6
+	instanceRadius: u32 = 7
+	instanceColor: u32 = 8
+
+	// Generate
+	gl.GenVertexArrays(1, &render.vaoId)
+	gl.GenBuffers(2, raw_data(&render.vboIds))
+
+	gl.BindVertexArray(render.vaoId)
+	gl.EnableVertexAttribArray(vertexAttribute)
+	gl.EnableVertexAttribArray(instanceTransform)
+	gl.EnableVertexAttribArray(instancePoint12)
+	gl.EnableVertexAttribArray(instancePoint34)
+	gl.EnableVertexAttribArray(instancePoint56)
+	gl.EnableVertexAttribArray(instancePoint78)
+	gl.EnableVertexAttribArray(instancePointCount)
+	gl.EnableVertexAttribArray(instanceRadius)
+	gl.EnableVertexAttribArray(instanceColor)
+
+	// Vertex buffer for single quad
+	a: f32 = 1.1
+	vertices := [?]b2.Vec2{{-a, -a}, {a, -a}, {-a, a}, {a, -a}, {a, a}, {-a, a}}
+	gl.BindBuffer(gl.ARRAY_BUFFER, render.vboIds[0])
+	gl.BufferData(gl.ARRAY_BUFFER, size_of(vertices), raw_data(&vertices), gl.STATIC_DRAW)
+	gl.VertexAttribPointer(vertexAttribute, 2, gl.FLOAT, gl.FALSE, 0, uintptr(0))
+
+	// Polygon buffer
+	gl.BindBuffer(gl.ARRAY_BUFFER, render.vboIds[1])
+	gl.BufferData(gl.ARRAY_BUFFER, POLYGON_BATCH_SIZE * size_of(Polygon), nil, gl.DYNAMIC_DRAW)
+	gl.VertexAttribPointer(instanceTransform, 4, gl.FLOAT, gl.FALSE, size_of(Polygon), offset_of(Polygon, transform))
+	gl.VertexAttribPointer(instancePoint12, 4, gl.FLOAT, gl.FALSE, size_of(Polygon), offset_of(Polygon, p1))
+	gl.VertexAttribPointer(instancePoint34, 4, gl.FLOAT, gl.FALSE, size_of(Polygon), offset_of(Polygon, p3))
+	gl.VertexAttribPointer(instancePoint56, 4, gl.FLOAT, gl.FALSE, size_of(Polygon), offset_of(Polygon, p5))
+	gl.VertexAttribPointer(instancePoint78, 4, gl.FLOAT, gl.FALSE, size_of(Polygon), offset_of(Polygon, p7))
+	gl.VertexAttribIPointer(instancePointCount, 1, gl.INT, size_of(Polygon), offset_of(Polygon, count))
+	gl.VertexAttribPointer(instanceRadius, 1, gl.FLOAT, gl.FALSE, size_of(Polygon), offset_of(Polygon, radius))
+	// color will get automatically expanded to floats in the shader
+	gl.VertexAttribPointer(instanceColor, 4, gl.UNSIGNED_BYTE, gl.TRUE, size_of(Polygon), offset_of(Polygon, color))
+
+	// These divisors tell glsl how to distribute per instance data
+	gl.VertexAttribDivisor(instanceTransform, 1)
+	gl.VertexAttribDivisor(instancePoint12, 1)
+	gl.VertexAttribDivisor(instancePoint34, 1)
+	gl.VertexAttribDivisor(instancePoint56, 1)
+	gl.VertexAttribDivisor(instancePoint78, 1)
+	gl.VertexAttribDivisor(instancePointCount, 1)
+	gl.VertexAttribDivisor(instanceRadius, 1)
+	gl.VertexAttribDivisor(instanceColor, 1)
+
+	check_opengl()
+
+	// Cleanup
+	gl.BindBuffer(gl.ARRAY_BUFFER, 0)
+	gl.BindVertexArray(0)
+
+	return render
+}
+
+@(private = "file")
+destroy_polygons :: proc(render: ^Polygons) {
+	if render.vaoId != 0 {
+		gl.DeleteVertexArrays(1, &render.vaoId)
+		gl.DeleteBuffers(2, raw_data(&render.vboIds))
+	}
+
+	if render.programId != 0 {
+		gl.DeleteProgram(render.programId)
+	}
+
+	delete(render.polygons)
+	render^ = {}
+}
+
+@(private = "file")
+flush_polygons :: proc(render: ^Polygons, camera: ^Camera) {
+
+	count := len(render.polygons)
+	if (count == 0) {
+		return
+	}
+
+	gl.UseProgram(render.programId)
+
+	proj: [16]f32
+	BuildProjectionMatrix(camera, &proj, 0.2)
+
+	gl.UniformMatrix4fv(render.projectionUniform, 1, gl.FALSE, raw_data(&proj))
+	gl.Uniform1f(render.pixelScaleUniform, camera.height / camera.zoom)
+
+	gl.BindVertexArray(render.vaoId)
+	gl.BindBuffer(gl.ARRAY_BUFFER, render.vboIds[1])
+
+	gl.Enable(gl.BLEND)
+	gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+
+	base := 0
+	for count > 0 {
+		batchCount := min(count, POLYGON_BATCH_SIZE)
+
+		gl.BufferSubData(gl.ARRAY_BUFFER, 0, batchCount * size_of(Polygon), raw_data(render.polygons[base:]))
+		gl.DrawArraysInstanced(gl.TRIANGLES, 0, 6, i32(batchCount))
+		check_opengl()
+
+		count -= POLYGON_BATCH_SIZE
+		base += POLYGON_BATCH_SIZE
+	}
+
+	gl.Disable(gl.BLEND)
+
+	gl.BindBuffer(gl.ARRAY_BUFFER, 0)
+	gl.BindVertexArray(0)
+	gl.UseProgram(0)
+
+	clear(&render.polygons)
+}
+
+draw_solid_polygon :: proc "contextless" (
+	draw: ^Draw,
+	transform: b2.Transform,
+	vertices: [^]b2.Vec2,
+	vertexCount: i32,
+	radius: f32,
+	color: b2.HexColor,
+) {
+	context = g_context
+	data: Polygon
+	data.transform = transform
+
+	n := vertexCount < 8 ? vertexCount : 8
+	switch n {
+	case 8:
+		data.p8 = vertices[7]
+		fallthrough
+	case 7:
+		data.p7 = vertices[6]
+		fallthrough
+	case 6:
+		data.p6 = vertices[5]
+		fallthrough
+	case 5:
+		data.p5 = vertices[4]
+		fallthrough
+	case 4:
+		data.p4 = vertices[3]
+		fallthrough
+	case 3:
+		data.p3 = vertices[2]
+		fallthrough
+	case 2:
+		data.p2 = vertices[1]
+		fallthrough
+	case 1:
+		data.p1 = vertices[0]
+	}
+
+	data.count = n
+	data.radius = radius
+	data.color = make_rgba8(color, 1.0)
+
+	append(&draw.polygons.polygons, data)
 }
 
 FONT_FIRST_CHARACTER :: 32
@@ -293,6 +538,7 @@ draw_screen_string :: proc(draw: ^Draw, x, y: f32, color: b2.HexColor, format: s
 flush_draw :: proc(draw: ^Draw, camera: ^Camera) {
 	// todo
 
+	flush_polygons(&draw.polygons, camera)
 	flush_lines(&draw.lines, camera)
 	flush_text(&draw.font, camera)
 	check_opengl()
@@ -430,50 +676,6 @@ flush_text :: proc(font: ^Font, camera: ^Camera) {
 
 	check_opengl()
 	clear(&font.vertices)
-}
-
-@(private = "file")
-flush_lines :: proc(render: ^Line_Render, camera: ^Camera) {
-	if len(render.points) == 0 {
-		return
-	}
-	assert(len(render.points) % 2 == 0)
-
-	gl.Enable(gl.BLEND)
-	gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
-
-	gl.UseProgram(render.program_id)
-
-	proj: [16]f32
-	BuildProjectionMatrix(camera, &proj, 0.1)
-
-	gl.UniformMatrix4fv(render.projection_uniform, 1, gl.FALSE, raw_data(&proj))
-
-	gl.BindVertexArray(render.vao_id)
-
-	gl.BindBuffer(gl.ARRAY_BUFFER, render.vbo_id)
-
-	base := 0
-	count := len(render.points)
-	for (count > 0) {
-		batchCount := min(count, LINE_BATCH_SIZE)
-		gl.BufferSubData(gl.ARRAY_BUFFER, 0, batchCount * size_of(Vertex_Data), raw_data(render.points[base:]))
-
-		gl.DrawArrays(gl.LINES, 0, i32(batchCount))
-
-		check_opengl()
-
-		count -= LINE_BATCH_SIZE
-		base += LINE_BATCH_SIZE
-	}
-
-	gl.BindBuffer(gl.ARRAY_BUFFER, 0)
-	gl.BindVertexArray(0)
-	gl.UseProgram(0)
-
-	gl.Disable(gl.BLEND)
-
-	clear(&render.points)
 }
 
 get_view_bounds :: proc(camera: ^Camera) -> b2.AABB {
