@@ -55,33 +55,117 @@ convert_world_to_screen :: proc "contextless" (camera: ^Camera, world_point: [2]
 	return ps
 }
 
+LINE_BATCH_SIZE :: (2 * 2048)
+
+Vertex_Data :: struct {
+	position: b2.Vec2,
+	rgba:     RGBA8,
+}
+
+Line_Render :: struct {
+	points:             [dynamic]Vertex_Data,
+	vao_id:             u32,
+	vbo_id:             u32,
+	program_id:         u32,
+	projection_uniform: i32,
+}
+
 Draw :: struct {
 	// TODO
-	/*
-	Background background;
-	PointRender points;
-	LineRender lines;
-	CircleRender hollowCircles;
-	SolidCircles circles;
-	Capsules capsules;
-	Polygons polygons;
-	*/
-	font: Font,
+	// Background background;
+	// PointRender points;
+	lines: Line_Render,
+	// CircleRender hollowCircles;
+	// SolidCircles circles;
+	// Capsules capsules;
+	// Polygons polygons;
+	font:  Font,
 }
 
 draw_create :: proc() -> ^Draw {
 	draw := new(Draw)
+	// todo
+	draw.lines = create_line_render()
 	draw.font = font_create("data/droid_sans.ttf", 18.0)
 	return draw
 }
 
 draw_destroy :: proc(draw: ^Draw) {
+	// todo
+	destroy_line_render(&draw.lines)
 	font_destroy(&draw.font)
 	free(draw)
 }
 
+@(private = "file")
+create_line_render :: proc() -> Line_Render {
+	render: Line_Render
+	render.points = make([dynamic]Vertex_Data, 0, LINE_BATCH_SIZE)
+	render.program_id = create_program_from_files("data/line.vs", "data/line.fs")
+	render.projection_uniform = gl.GetUniformLocation(render.program_id, "projectionMatrix")
+
+	vertexAttribute: u32 = 0
+	colorAttribute: u32 = 1
+
+	// Generate
+	gl.GenVertexArrays(1, &render.vao_id)
+	gl.GenBuffers(1, &render.vbo_id)
+
+	gl.BindVertexArray(render.vao_id)
+	gl.EnableVertexAttribArray(vertexAttribute)
+	gl.EnableVertexAttribArray(colorAttribute)
+
+	// Vertex buffer
+	gl.BindBuffer(gl.ARRAY_BUFFER, render.vbo_id)
+	gl.BufferData(gl.ARRAY_BUFFER, LINE_BATCH_SIZE * size_of(Vertex_Data), nil, gl.DYNAMIC_DRAW)
+
+	gl.VertexAttribPointer(
+		vertexAttribute,
+		2,
+		gl.FLOAT,
+		gl.FALSE,
+		size_of(Vertex_Data),
+		offset_of(Vertex_Data, position),
+	)
+	// save bandwidth by expanding color to floats in the shader
+	gl.VertexAttribPointer(
+		colorAttribute,
+		4,
+		gl.UNSIGNED_BYTE,
+		gl.TRUE,
+		size_of(Vertex_Data),
+		offset_of(Vertex_Data, rgba),
+	)
+
+	check_opengl()
+
+	// Cleanup
+	gl.BindBuffer(gl.ARRAY_BUFFER, 0)
+	gl.BindVertexArray(0)
+	return render
+}
+
+@(private = "file")
+destroy_line_render :: proc(render: ^Line_Render) {
+	if render.vao_id != 0 {
+		gl.DeleteVertexArrays(1, &render.vao_id)
+		gl.DeleteBuffers(1, &render.vbo_id)
+	}
+
+	if render.program_id != 0 {
+		gl.DeleteProgram(render.program_id)
+	}
+
+	delete(render.points)
+
+	render^ = {}
+}
+
 draw_line :: proc "contextless" (draw: ^Draw, p1, p2: b2.Vec2, color: b2.HexColor) {
-	// todo
+	context = g_context
+	rgba := make_rgba8(color, 1.0)
+	append(&draw.lines.points, Vertex_Data{p1, rgba})
+	append(&draw.lines.points, Vertex_Data{p2, rgba})
 }
 
 FONT_FIRST_CHARACTER :: 32
@@ -95,7 +179,7 @@ FONT_BATCH_SIZE :: (6 * 10000)
 RGBA8 :: [4]u8
 
 @(private = "file")
-make_rgba8 :: proc(c: b2.HexColor, alpha: f32) -> RGBA8 {
+make_rgba8 :: proc "contextless" (c: b2.HexColor, alpha: f32) -> RGBA8 {
 	color: RGBA8
 	color.r = u8((int(c) >> 16) & 0xFF)
 	color.g = u8((int(c) >> 8) & 0xFF)
@@ -207,6 +291,9 @@ draw_screen_string :: proc(draw: ^Draw, x, y: f32, color: b2.HexColor, format: s
 }
 
 flush_draw :: proc(draw: ^Draw, camera: ^Camera) {
+	// todo
+
+	flush_lines(&draw.lines, camera)
 	flush_text(&draw.font, camera)
 	check_opengl()
 }
@@ -239,6 +326,40 @@ draw_add_text :: proc(font: ^Font, x, y: f32, color: b2.HexColor, text: string) 
 			append(&font.vertices, v3)
 		}
 	}
+}
+
+// Convert from world coordinates to normalized device coordinates.
+// http://www.songho.ca/opengl/gl_projectionmatrix.html
+// This also includes the view transform
+@(private = "file")
+BuildProjectionMatrix :: proc(camera: ^Camera, m: ^[16]f32, zBias: f32) {
+	ratio := camera.width / camera.height
+	extents := b2.Vec2{camera.zoom * ratio, camera.zoom}
+
+	lower := camera.center - extents
+	upper := camera.center + extents
+	w := upper.x - lower.x
+	h := upper.y - lower.y
+
+	m[0] = 2.0 / w
+	m[1] = 0.0
+	m[2] = 0.0
+	m[3] = 0.0
+
+	m[4] = 0.0
+	m[5] = 2.0 / h
+	m[6] = 0.0
+	m[7] = 0.0
+
+	m[8] = 0.0
+	m[9] = 0.0
+	m[10] = -1.0
+	m[11] = 0.0
+
+	m[12] = -2.0 * camera.center.x / w
+	m[13] = -2.0 * camera.center.y / h
+	m[14] = zBias
+	m[15] = 1.0
 }
 
 @(private = "file")
@@ -309,6 +430,50 @@ flush_text :: proc(font: ^Font, camera: ^Camera) {
 
 	check_opengl()
 	clear(&font.vertices)
+}
+
+@(private = "file")
+flush_lines :: proc(render: ^Line_Render, camera: ^Camera) {
+	if len(render.points) == 0 {
+		return
+	}
+	assert(len(render.points) % 2 == 0)
+
+	gl.Enable(gl.BLEND)
+	gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+
+	gl.UseProgram(render.program_id)
+
+	proj: [16]f32
+	BuildProjectionMatrix(camera, &proj, 0.1)
+
+	gl.UniformMatrix4fv(render.projection_uniform, 1, gl.FALSE, raw_data(&proj))
+
+	gl.BindVertexArray(render.vao_id)
+
+	gl.BindBuffer(gl.ARRAY_BUFFER, render.vbo_id)
+
+	base := 0
+	count := len(render.points)
+	for (count > 0) {
+		batchCount := min(count, LINE_BATCH_SIZE)
+		gl.BufferSubData(gl.ARRAY_BUFFER, 0, batchCount * size_of(Vertex_Data), raw_data(render.points[base:]))
+
+		gl.DrawArrays(gl.LINES, 0, i32(batchCount))
+
+		check_opengl()
+
+		count -= LINE_BATCH_SIZE
+		base += LINE_BATCH_SIZE
+	}
+
+	gl.BindBuffer(gl.ARRAY_BUFFER, 0)
+	gl.BindVertexArray(0)
+	gl.UseProgram(0)
+
+	gl.Disable(gl.BLEND)
+
+	clear(&render.points)
 }
 
 get_view_bounds :: proc(camera: ^Camera) -> b2.AABB {

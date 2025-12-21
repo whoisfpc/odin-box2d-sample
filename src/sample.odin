@@ -44,7 +44,6 @@ Sample :: struct {
 	draw:              ^Draw,
 	scheduler:         ^enki.TaskScheduler,
 	tasks:             []^enki.TaskSet,
-	// todo: need destroy all tasks before set to zero
 	task_count:        int,
 	thread_count:      i32,
 
