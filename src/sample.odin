@@ -4,6 +4,7 @@ import enki "../odin-enkiTS"
 import im "../odin-imgui"
 import "base:intrinsics"
 import "core:fmt"
+import "core:math"
 import "core:slice"
 import "core:strings"
 import b2 "vendor:box2d"
@@ -429,14 +430,116 @@ sample_variant_keyboard :: proc(sample: ^Sample, key: i32) {
 
 }
 
-sample_variant_mouse_down :: proc "contextless" (sample: ^Sample, p: [2]f32, button, mods: i32) {
+Query_Context :: struct {
+	point:   b2.Vec2,
+	body_id: b2.BodyId,
+}
 
+query_callback :: proc "c" (shapeId: b2.ShapeId, ctx: rawptr) -> bool {
+	query_ctx := cast(^Query_Context)ctx
+
+	body_id := b2.Shape_GetBody(shapeId)
+	body_type := b2.Body_GetType(body_id)
+	if body_type != .dynamicBody {
+		// continue query
+		return true
+	}
+
+	overlap := b2.Shape_TestPoint(shapeId, query_ctx.point)
+	if overlap {
+		// found shape
+		query_ctx.body_id = body_id
+		return false
+	}
+
+	return true
+}
+
+sample_base_mouse_down :: proc "contextless" (sample: ^Sample, p: [2]f32, button, mods: i32) {
+	if b2.IS_NON_NULL(sample.mouse_joint_id) {
+		return
+	}
+
+	if button == glfw.MOUSE_BUTTON_1 {
+		// Make a small box.
+		box: b2.AABB
+		d := b2.Vec2{0.001, 0.001}
+		box.lowerBound = p - d
+		box.upperBound = p + d
+
+		sample.mouse_point = p
+
+		// Query the world for overlapping shapes.
+		query_ctx := Query_Context{p, b2.nullBodyId}
+		_ = b2.World_OverlapAABB(sample.world_id, box, b2.DefaultQueryFilter(), query_callback, &query_ctx)
+
+		if b2.IS_NON_NULL(query_ctx.body_id) {
+			bodyDef := b2.DefaultBodyDef()
+			bodyDef.type = .kinematicBody
+			bodyDef.position = sample.mouse_point
+			bodyDef.enableSleep = false
+			sample.mouse_body_id = b2.CreateBody(sample.world_id, bodyDef)
+
+			jointDef := b2.DefaultMotorJointDef()
+			jointDef.bodyIdA = sample.mouse_body_id
+			jointDef.bodyIdB = query_ctx.body_id
+			jointDef.linearOffset = -b2.Body_GetLocalPoint(query_ctx.body_id, p)
+			// jointDef.localFrameB.p = b2.Body_GetLocalPoint(query_ctx.body_id, p)
+			// jointDef.linearHertz = 7.5
+			// jointDef.linearDampingRatio = 1.0
+
+			massData := b2.Body_GetMassData(query_ctx.body_id)
+			g := b2.Length(b2.World_GetGravity(sample.world_id))
+			mg := massData.mass * g
+
+			jointDef.maxForce = sample.mouse_force_scale * mg
+
+			if massData.mass > 0.0 {
+				// This acts like angular friction
+				lever := math.sqrt(massData.rotationalInertia / massData.mass)
+				jointDef.maxTorque = 0.25 * lever * mg
+			}
+
+			sample.mouse_joint_id = b2.CreateMotorJoint(sample.world_id, jointDef)
+		}
+	}
+}
+
+sample_variant_mouse_down :: proc "contextless" (sample: ^Sample, p: [2]f32, button, mods: i32) {
+	#partial switch v in sample.variant {
+	case:
+		sample_base_mouse_down(sample, p, button, mods)
+	}
+}
+
+sample_base_mouse_up :: proc "contextless" (sample: ^Sample, p: [2]f32, button: i32) {
+	if b2.IS_NON_NULL(sample.mouse_joint_id) && button == glfw.MOUSE_BUTTON_1 {
+		b2.DestroyJoint(sample.mouse_joint_id)
+		sample.mouse_joint_id = b2.nullJointId
+
+		b2.DestroyBody(sample.mouse_body_id)
+		sample.mouse_body_id = b2.nullBodyId
+	}
 }
 
 sample_variant_mouse_up :: proc "contextless" (sample: ^Sample, p: [2]f32, button: i32) {
+	#partial switch v in sample.variant {
+	case:
+		sample_base_mouse_up(sample, p, button)
+	}
+}
 
+sample_base_mouse_move :: proc "contextless" (sample: ^Sample, p: [2]f32) {
+	if !b2.Joint_IsValid(sample.mouse_joint_id) {
+		// The world or attached body was destroyed.
+		sample.mouse_joint_id = b2.nullJointId
+	}
+	sample.mouse_point = p
 }
 
 sample_variant_mouse_move :: proc "contextless" (sample: ^Sample, p: [2]f32) {
-
+	#partial switch v in sample.variant {
+	case:
+		sample_base_mouse_move(sample, p)
+	}
 }
