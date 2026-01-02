@@ -54,6 +54,22 @@ convert_world_to_screen :: proc "contextless" (camera: ^Camera, world_point: [2]
 	return ps
 }
 
+POINT_BATCH_SIZE :: 2048
+
+Point_Data :: struct {
+	position: b2.Vec2,
+	size:     f32,
+	rgba:     RGBA8,
+}
+
+Point_Render :: struct {
+	points:             [dynamic]Point_Data,
+	vao_id:             u32,
+	vbo_id:             u32,
+	program_id:         u32,
+	projection_uniform: i32,
+}
+
 LINE_BATCH_SIZE :: (2 * 2048)
 
 Vertex_Data :: struct {
@@ -94,7 +110,7 @@ Polygons :: struct {
 Draw :: struct {
 	// TODO
 	// Background background;
-	// PointRender points;
+	points:   Point_Render,
 	lines:    Line_Render,
 	// CircleRender hollowCircles;
 	// SolidCircles circles;
@@ -106,6 +122,7 @@ Draw :: struct {
 draw_create :: proc() -> ^Draw {
 	draw := new(Draw)
 	// todo
+	draw.points = create_point_render()
 	draw.lines = create_line_render()
 	draw.polygons = create_polygons()
 	draw.font = font_create("data/droid_sans.ttf", 18.0)
@@ -118,6 +135,121 @@ draw_destroy :: proc(draw: ^Draw) {
 	destroy_polygons(&draw.polygons)
 	font_destroy(&draw.font)
 	free(draw)
+}
+
+@(private = "file")
+create_point_render :: proc() -> Point_Render {
+	render: Point_Render
+	render.points = make([dynamic]Point_Data, 0, POINT_BATCH_SIZE)
+	render.program_id = create_program_from_files("data/point.vs", "data/point.fs")
+	render.projection_uniform = gl.GetUniformLocation(render.program_id, "projectionMatrix")
+
+	vertexAtttribute: u32 = 0
+	sizeAttribute: u32 = 1
+	colorAttribute: u32 = 2
+
+	// Generate
+	gl.GenVertexArrays(1, &render.vao_id)
+	gl.GenBuffers(1, &render.vbo_id)
+
+	gl.BindVertexArray(render.vao_id)
+	gl.EnableVertexAttribArray(vertexAtttribute)
+	gl.EnableVertexAttribArray(sizeAttribute)
+	gl.EnableVertexAttribArray(colorAttribute)
+
+	// Vertex buffer
+	gl.BindBuffer(gl.ARRAY_BUFFER, render.vbo_id)
+	gl.BufferData(gl.ARRAY_BUFFER, POINT_BATCH_SIZE * size_of(Point_Data), nil, gl.DYNAMIC_DRAW)
+
+	gl.VertexAttribPointer(
+		vertexAtttribute,
+		2,
+		gl.FLOAT,
+		gl.FALSE,
+		size_of(Point_Data),
+		offset_of(Point_Data, position),
+	)
+
+	gl.VertexAttribPointer(sizeAttribute, 1, gl.FLOAT, gl.FALSE, size_of(Point_Data), offset_of(Point_Data, size))
+	// save bandwidth by expanding color to floats in the shader
+	gl.VertexAttribPointer(
+		colorAttribute,
+		4,
+		gl.UNSIGNED_BYTE,
+		gl.TRUE,
+		size_of(Point_Data),
+		offset_of(Point_Data, rgba),
+	)
+
+	check_opengl()
+
+	// Cleanup
+	gl.BindBuffer(gl.ARRAY_BUFFER, 0)
+	gl.BindVertexArray(0)
+
+	return render
+}
+
+@(private = "file")
+destroy_point_render :: proc(render: ^Point_Render) {
+	if render.vao_id != 0 {
+		gl.DeleteVertexArrays(1, &render.vao_id)
+		gl.DeleteBuffers(1, &render.vbo_id)
+	}
+
+	if render.program_id != 0 {
+		gl.DeleteProgram(render.program_id)
+	}
+
+	delete(render.points)
+
+	render^ = {}
+}
+
+@(private = "file")
+flush_points :: proc(render: ^Point_Render, camera: ^Camera) {
+	if len(render.points) == 0 {
+		return
+	}
+
+	gl.UseProgram(render.program_id)
+
+	proj: [16]f32
+	BuildProjectionMatrix(camera, &proj, 0.0)
+
+	gl.UniformMatrix4fv(render.projection_uniform, 1, gl.FALSE, raw_data(&proj))
+	gl.BindVertexArray(render.vao_id)
+
+
+	gl.BindBuffer(gl.ARRAY_BUFFER, render.vbo_id)
+	gl.Enable(gl.PROGRAM_POINT_SIZE)
+
+	base := 0
+	count := len(render.points)
+	for (count > 0) {
+		batchCount := min(count, POINT_BATCH_SIZE)
+		gl.BufferSubData(gl.ARRAY_BUFFER, 0, batchCount * size_of(Point_Data), raw_data(render.points[base:]))
+
+		gl.DrawArrays(gl.POINTS, 0, i32(batchCount))
+
+		check_opengl()
+
+		count -= POINT_BATCH_SIZE
+		base += POINT_BATCH_SIZE
+	}
+
+	gl.Disable(gl.PROGRAM_POINT_SIZE)
+	gl.BindBuffer(gl.ARRAY_BUFFER, 0)
+	gl.BindVertexArray(0)
+	gl.UseProgram(0)
+
+	clear(&render.points)
+}
+
+draw_point :: proc "contextless" (draw: ^Draw, position: b2.Vec2, size: f32, color: b2.HexColor) {
+	context = g_context
+	rgba := make_rgba8(color, 1.0)
+	append(&draw.points.points, Point_Data{position, size, rgba})
 }
 
 @(private = "file")

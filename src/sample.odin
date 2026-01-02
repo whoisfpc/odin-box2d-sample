@@ -163,7 +163,8 @@ DrawTransformFcn :: proc "c" (transform: b2.Transform, ctx: rawptr) {
 
 @(private = "file")
 DrawPointFcn :: proc "c" (p: b2.Vec2, size: f32, color: b2.HexColor, ctx: rawptr) {
-	// todo
+	sample_ctx := cast(^Sample_Context)ctx
+	draw_point(sample_ctx.draw, p, size, color)
 }
 
 @(private = "file")
