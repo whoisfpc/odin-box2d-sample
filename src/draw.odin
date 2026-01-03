@@ -54,6 +54,18 @@ convert_world_to_screen :: proc "contextless" (camera: ^Camera, world_point: [2]
 	return ps
 }
 
+RGBA8 :: [4]u8
+
+@(private = "file")
+make_rgba8 :: proc "contextless" (c: b2.HexColor, alpha: f32) -> RGBA8 {
+	color: RGBA8
+	color.r = u8((int(c) >> 16) & 0xFF)
+	color.g = u8((int(c) >> 8) & 0xFF)
+	color.b = u8((int(c) >> 0) & 0xFF)
+	color.a = u8(alpha * 0xFF)
+	return color
+}
+
 POINT_BATCH_SIZE :: 2048
 
 Point_Data :: struct {
@@ -107,6 +119,30 @@ Polygons :: struct {
 	pixelScaleUniform: i32,
 }
 
+FONT_FIRST_CHARACTER :: 32
+FONT_CHARACTER_COUNT :: 96
+FONT_ATLAS_WIDTH :: 512
+FONT_ATLAS_HEIGHT :: 512
+
+// The number of vertices the vbo can hold. Must be a multiple of 6.
+FONT_BATCH_SIZE :: (6 * 10000)
+
+Font_Vertex :: struct {
+	position: [2]f32,
+	uv:       [2]f32,
+	color:    RGBA8,
+}
+
+Font :: struct {
+	font_size:  f32,
+	vertices:   [dynamic]Font_Vertex,
+	characters: []tt.bakedchar,
+	texture_id: u32,
+	vao_id:     u32,
+	vbo_id:     u32,
+	program_id: u32,
+}
+
 Draw :: struct {
 	// TODO
 	// Background background;
@@ -131,6 +167,7 @@ draw_create :: proc() -> ^Draw {
 
 draw_destroy :: proc(draw: ^Draw) {
 	// todo
+	destroy_point_render(&draw.points)
 	destroy_line_render(&draw.lines)
 	destroy_polygons(&draw.polygons)
 	font_destroy(&draw.font)
@@ -523,42 +560,7 @@ draw_solid_polygon :: proc "contextless" (
 	append(&draw.polygons.polygons, data)
 }
 
-FONT_FIRST_CHARACTER :: 32
-FONT_CHARACTER_COUNT :: 96
-FONT_ATLAS_WIDTH :: 512
-FONT_ATLAS_HEIGHT :: 512
-
-// The number of vertices the vbo can hold. Must be a multiple of 6.
-FONT_BATCH_SIZE :: (6 * 10000)
-
-RGBA8 :: [4]u8
-
 @(private = "file")
-make_rgba8 :: proc "contextless" (c: b2.HexColor, alpha: f32) -> RGBA8 {
-	color: RGBA8
-	color.r = u8((int(c) >> 16) & 0xFF)
-	color.g = u8((int(c) >> 8) & 0xFF)
-	color.b = u8((int(c) >> 0) & 0xFF)
-	color.a = u8(alpha * 0xFF)
-	return color
-}
-
-Font_Vertex :: struct {
-	position: [2]f32,
-	uv:       [2]f32,
-	color:    RGBA8,
-}
-
-Font :: struct {
-	font_size:  f32,
-	vertices:   [dynamic]Font_Vertex,
-	characters: []tt.bakedchar,
-	texture_id: u32,
-	vao_id:     u32,
-	vbo_id:     u32,
-	program_id: u32,
-}
-
 font_create :: proc(font_path: string, font_size: f32) -> Font {
 	font: Font
 	file_buffer, err := os.read_entire_file_from_path(font_path, context.allocator)
@@ -626,6 +628,7 @@ font_create :: proc(font_path: string, font_size: f32) -> Font {
 	return font
 }
 
+@(private = "file")
 font_destroy :: proc(font: ^Font) {
 	if font.program_id != 0 {
 		gl.DeleteProgram(font.program_id)
@@ -637,21 +640,6 @@ font_destroy :: proc(font: ^Font) {
 	}
 	delete(font.characters)
 	delete(font.vertices)
-}
-
-draw_screen_string :: proc(draw: ^Draw, x, y: f32, color: b2.HexColor, format: string, args: ..any) {
-	text := fmt.aprintf(format, ..args)
-	defer delete(text)
-	draw_add_text(&draw.font, x, y, color, text)
-}
-
-flush_draw :: proc(draw: ^Draw, camera: ^Camera) {
-	// todo
-
-	flush_polygons(&draw.polygons, camera)
-	flush_lines(&draw.lines, camera)
-	flush_text(&draw.font, camera)
-	check_opengl()
 }
 
 @(private = "file")
@@ -682,6 +670,59 @@ draw_add_text :: proc(font: ^Font, x, y: f32, color: b2.HexColor, text: string) 
 			append(&font.vertices, v3)
 		}
 	}
+}
+
+@(private = "file")
+flush_text :: proc(font: ^Font, camera: ^Camera) {
+	projection_matrix: [16]f32
+	make_orthographic_matrix(&projection_matrix, 0, camera.width, camera.height, 0, -1, 1)
+
+	gl.UseProgram(font.program_id)
+	gl.Enable(gl.BLEND)
+	gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+
+	slot: i32 = 0
+	gl.ActiveTexture(gl.TEXTURE0 + u32(slot))
+	gl.BindTexture(gl.TEXTURE_2D, font.texture_id)
+
+	gl.BindVertexArray(font.vao_id)
+	gl.BindBuffer(gl.ARRAY_BUFFER, font.vbo_id)
+
+	texture_uniform := gl.GetUniformLocation(font.program_id, "FontAtlas")
+	gl.Uniform1i(texture_uniform, slot)
+
+	matrix_uniform := gl.GetUniformLocation(font.program_id, "ProjectionMatrix")
+	gl.UniformMatrix4fv(matrix_uniform, 1, gl.FALSE, raw_data(&projection_matrix))
+
+	total_vertex_count := len(font.vertices)
+	draw_call_count := (total_vertex_count / FONT_BATCH_SIZE) + 1
+
+	for i in 0 ..< draw_call_count {
+		data := font.vertices[i * FONT_BATCH_SIZE:]
+		vertex_count: int
+		if i == draw_call_count - 1 {
+			vertex_count = total_vertex_count % FONT_BATCH_SIZE
+		} else {
+			vertex_count = FONT_BATCH_SIZE
+		}
+		gl.BufferSubData(gl.ARRAY_BUFFER, 0, vertex_count * size_of(Font_Vertex), raw_data(data))
+		gl.DrawArrays(gl.TRIANGLES, 0, i32(vertex_count))
+	}
+
+	gl.BindBuffer(gl.ARRAY_BUFFER, 0)
+	gl.BindVertexArray(0)
+	gl.BindTexture(gl.TEXTURE_2D, 0)
+
+	gl.Disable(gl.BLEND)
+
+	check_opengl()
+	clear(&font.vertices)
+}
+
+draw_screen_string :: proc(draw: ^Draw, x, y: f32, color: b2.HexColor, format: string, args: ..any) {
+	text := fmt.aprintf(format, ..args)
+	defer delete(text)
+	draw_add_text(&draw.font, x, y, color, text)
 }
 
 // Convert from world coordinates to normalized device coordinates.
@@ -741,51 +782,13 @@ make_orthographic_matrix :: proc(m: ^[16]f32, left, right, bottom, top, near, fa
 	m[15] = 1.0
 }
 
-@(private = "file")
-flush_text :: proc(font: ^Font, camera: ^Camera) {
-	projection_matrix: [16]f32
-	make_orthographic_matrix(&projection_matrix, 0, camera.width, camera.height, 0, -1, 1)
+flush_draw :: proc(draw: ^Draw, camera: ^Camera) {
+	// todo
 
-	gl.UseProgram(font.program_id)
-	gl.Enable(gl.BLEND)
-	gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
-
-	slot: i32 = 0
-	gl.ActiveTexture(gl.TEXTURE0 + u32(slot))
-	gl.BindTexture(gl.TEXTURE_2D, font.texture_id)
-
-	gl.BindVertexArray(font.vao_id)
-	gl.BindBuffer(gl.ARRAY_BUFFER, font.vbo_id)
-
-	texture_uniform := gl.GetUniformLocation(font.program_id, "FontAtlas")
-	gl.Uniform1i(texture_uniform, slot)
-
-	matrix_uniform := gl.GetUniformLocation(font.program_id, "ProjectionMatrix")
-	gl.UniformMatrix4fv(matrix_uniform, 1, gl.FALSE, raw_data(&projection_matrix))
-
-	total_vertex_count := len(font.vertices)
-	draw_call_count := (total_vertex_count / FONT_BATCH_SIZE) + 1
-
-	for i in 0 ..< draw_call_count {
-		data := font.vertices[i * FONT_BATCH_SIZE:]
-		vertex_count: int
-		if i == draw_call_count - 1 {
-			vertex_count = total_vertex_count % FONT_BATCH_SIZE
-		} else {
-			vertex_count = FONT_BATCH_SIZE
-		}
-		gl.BufferSubData(gl.ARRAY_BUFFER, 0, vertex_count * size_of(Font_Vertex), raw_data(data))
-		gl.DrawArrays(gl.TRIANGLES, 0, i32(vertex_count))
-	}
-
-	gl.BindBuffer(gl.ARRAY_BUFFER, 0)
-	gl.BindVertexArray(0)
-	gl.BindTexture(gl.TEXTURE_2D, 0)
-
-	gl.Disable(gl.BLEND)
-
+	flush_polygons(&draw.polygons, camera)
+	flush_lines(&draw.lines, camera)
+	flush_text(&draw.font, camera)
 	check_opengl()
-	clear(&font.vertices)
 }
 
 get_view_bounds :: proc(camera: ^Camera) -> b2.AABB {

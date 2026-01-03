@@ -118,7 +118,12 @@ sample_context_load :: proc(ctx: ^Sample_Context) {
 
 @(private = "file")
 DrawPolygonFcn :: proc "c" (vertices: [^]b2.Vec2, vertexCount: i32, color: b2.HexColor, ctx: rawptr) {
-	// todo
+	for i: i32 = 0; i < vertexCount; i += 1 {
+		v1 := vertices[i]
+		v2 := vertices[(i + 1) % vertexCount]
+		sample_ctx := cast(^Sample_Context)ctx
+		draw_line(sample_ctx.draw, v1, v2, color)
+	}
 }
 
 @(private = "file")
