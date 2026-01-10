@@ -424,6 +424,10 @@ draw_line :: proc "contextless" (draw: ^Draw, p1, p2: b2.Vec2, color: b2.HexColo
 	append(&draw.lines.points, Vertex_Data{p2, rgba})
 }
 
+add_circle :: proc "contextless" (draw: ^Draw, center: b2.Vec2, radius: f32, color: b2.HexColor) {
+	// todo
+}
+
 @(private = "file")
 create_capsules :: proc() -> Capsules {
 	render: Capsules

@@ -355,6 +355,7 @@ update_ui :: proc() {
 		}
 
 		im.End()
+		sample_variant_update_gui(s_sample)
 	}
 }
 

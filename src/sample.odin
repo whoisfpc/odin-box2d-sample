@@ -62,6 +62,7 @@ Sample :: struct {
 	text_increment:    int,
 	variant:           union {
 		^BenchmarkBarrel24,
+		^Weeble,
 	},
 }
 
@@ -82,6 +83,7 @@ register_sample :: proc(category, name: cstring, fcn: sample_create_fcn_type) {
 register_all_samples :: proc() {
 	// todo: add all samples
 	register_sample("Benchmark", "Barrel 2.4", BenchmarkBarrel24_create)
+	register_sample("Bodies", "Weeble", Weeble_create)
 	slice.sort_by(g_sample_entries[:], proc(i, j: Sample_Entry) -> bool {
 		if i.category != j.category {
 			return i.category < j.category
@@ -135,14 +137,14 @@ DrawSolidPolygonFcn :: proc "c" (
 	color: b2.HexColor,
 	ctx: rawptr,
 ) {
-	// todo
 	sample_ctx := cast(^Sample_Context)ctx
 	draw_solid_polygon(sample_ctx.draw, transform, vertices, vertexCount, radius, color)
 }
 
 @(private = "file")
 DrawCircleFcn :: proc "c" (center: b2.Vec2, radius: f32, color: b2.HexColor, ctx: rawptr) {
-	// todo
+	sample_ctx := cast(^Sample_Context)ctx
+	add_circle(sample_ctx.draw, center, radius, color)
 }
 
 @(private = "file")
@@ -179,7 +181,7 @@ DrawStringFcn :: proc "c" (p: b2.Vec2, s: cstring, color: b2.HexColor, ctx: rawp
 }
 
 sample_context_save :: proc(ctx: ^Sample_Context) {
-
+	// todo
 }
 
 sample_base_create :: proc(ctx: ^Sample_Context, sample: ^Sample) {
@@ -242,6 +244,8 @@ sample_variant_destroy :: proc(sample: ^Sample) {
 	switch v in sample.variant {
 	case ^BenchmarkBarrel24:
 		BenchmarkBarrel24_destroy(v)
+	case ^Weeble:
+		Weeble_destroy(v)
 	case:
 		panic("unimplement destroy")
 	}
@@ -424,13 +428,18 @@ sample_base_step :: proc(sample: ^Sample) {
 
 sample_variant_step :: proc(sample: ^Sample) {
 	#partial switch v in sample.variant {
+	case ^Weeble:
+		Weeble_step(v)
 	case:
 		sample_base_step(sample)
 	}
 }
 
 sample_variant_update_gui :: proc(sample: ^Sample) {
-
+	#partial switch v in sample.variant {
+	case ^Weeble:
+		Weeble_update_gui(v)
+	}
 }
 
 sample_variant_keyboard :: proc(sample: ^Sample, key: i32) {
