@@ -3,12 +3,24 @@ package main
 import enki "../odin-enkiTS"
 import im "../odin-imgui"
 import "base:intrinsics"
+import "core:encoding/json"
 import "core:fmt"
 import "core:math"
+import "core:os"
 import "core:slice"
 import "core:strings"
 import b2 "vendor:box2d"
 import "vendor:glfw"
+
+@(private = "file")
+SETTINGS_PATH :: "settings.json"
+
+@(private = "file")
+Settings :: struct {
+	sample_index: i32,
+	draw_shapes:  bool,
+	draw_joints:  bool,
+}
 
 Sample_Context :: struct {
 	window:               glfw.WindowHandle,
@@ -116,6 +128,26 @@ sample_context_load :: proc(ctx: ^Sample_Context) {
 	ctx.debug_draw.userContext = ctx
 	ctx.debug_draw.drawShapes = true
 	ctx.debug_draw.drawJoints = true
+
+	// load settings from file
+	load_settings: {
+		data, ok := os.read_entire_file_from_filename(SETTINGS_PATH)
+		if !ok {
+			fmt.eprintln("Failed to load the settings file!")
+			break load_settings
+		}
+		defer delete(data) // Free the memory at the end
+
+		settings: Settings
+		unmarshal_err := json.unmarshal(data, &settings)
+		if unmarshal_err != nil {
+			fmt.eprintln("Failed to unmarshal the settings file!")
+		}
+
+		ctx.sample_index = settings.sample_index
+		ctx.debug_draw.drawShapes = settings.draw_shapes
+		ctx.debug_draw.drawJoints = settings.draw_joints
+	}
 }
 
 @(private = "file")
@@ -182,6 +214,34 @@ DrawStringFcn :: proc "c" (p: b2.Vec2, s: cstring, color: b2.HexColor, ctx: rawp
 
 sample_context_save :: proc(ctx: ^Sample_Context) {
 	// todo
+	settings := Settings {
+		sample_index = ctx.sample_index,
+		draw_shapes  = ctx.debug_draw.drawShapes,
+		draw_joints  = ctx.debug_draw.drawJoints,
+	}
+
+	json_data, err := json.marshal(
+	settings,
+	{
+		// Adds indentation etc
+		pretty         = true,
+
+		// Output enum member names instead of numeric value.
+		use_enum_names = true,
+	},
+	)
+
+	if err != nil {
+		fmt.eprintfln("Unable to marshal JSON for sample_context_save: %v", err)
+		return
+	}
+	defer delete(json_data)
+
+	werr := os.write_entire_file_or_err(SETTINGS_PATH, json_data)
+
+	if werr != nil {
+		fmt.eprintfln("Unable to write file: %v", werr)
+	}
 }
 
 sample_base_create :: proc(ctx: ^Sample_Context, sample: ^Sample) {
