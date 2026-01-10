@@ -97,6 +97,24 @@ Line_Render :: struct {
 	projection_uniform: i32,
 }
 
+CAPSULE_BATCH_SIZE :: 2048
+
+Capsule :: struct {
+	transform: b2.Transform,
+	radius:    f32,
+	length:    f32,
+	rgba:      RGBA8,
+}
+
+Capsules :: struct {
+	capsules:            [dynamic]Capsule,
+	vao_id:              u32,
+	vbo_ids:             [2]u32,
+	program_id:          u32,
+	projection_uniform:  i32,
+	pixel_scale_uniform: i32,
+}
+
 POLYGON_BATCH_SIZE :: 2048
 
 Polygon :: struct {
@@ -150,7 +168,7 @@ Draw :: struct {
 	lines:    Line_Render,
 	// CircleRender hollowCircles;
 	// SolidCircles circles;
-	// Capsules capsules;
+	capsules: Capsules,
 	polygons: Polygons,
 	font:     Font,
 }
@@ -160,6 +178,7 @@ draw_create :: proc() -> ^Draw {
 	// todo
 	draw.points = create_point_render()
 	draw.lines = create_line_render()
+	draw.capsules = create_capsules()
 	draw.polygons = create_polygons()
 	draw.font = font_create("data/droid_sans.ttf", 18.0)
 	return draw
@@ -169,6 +188,7 @@ draw_destroy :: proc(draw: ^Draw) {
 	// todo
 	destroy_point_render(&draw.points)
 	destroy_line_render(&draw.lines)
+	destroy_capsules(&draw.capsules)
 	destroy_polygons(&draw.polygons)
 	font_destroy(&draw.font)
 	free(draw)
@@ -402,6 +422,138 @@ draw_line :: proc "contextless" (draw: ^Draw, p1, p2: b2.Vec2, color: b2.HexColo
 	rgba := make_rgba8(color, 1.0)
 	append(&draw.lines.points, Vertex_Data{p1, rgba})
 	append(&draw.lines.points, Vertex_Data{p2, rgba})
+}
+
+@(private = "file")
+create_capsules :: proc() -> Capsules {
+	render: Capsules
+
+	render.capsules = make([dynamic]Capsule, 0, CAPSULE_BATCH_SIZE)
+	render.program_id = create_program_from_files("data/solid_capsule.vs", "data/solid_capsule.fs")
+	render.projection_uniform = gl.GetUniformLocation(render.program_id, "projectionMatrix")
+	render.pixel_scale_uniform = gl.GetUniformLocation(render.program_id, "pixelScale")
+
+	vertexAttribute: u32 = 0
+	instanceTransform: u32 = 1
+	instanceRadius: u32 = 2
+	instanceLength: u32 = 3
+	instanceColor: u32 = 4
+
+	// Generate
+	gl.GenVertexArrays(1, &render.vao_id)
+	gl.GenBuffers(2, raw_data(&render.vbo_ids))
+
+	gl.BindVertexArray(render.vao_id)
+	gl.EnableVertexAttribArray(vertexAttribute)
+	gl.EnableVertexAttribArray(instanceTransform)
+	gl.EnableVertexAttribArray(instanceRadius)
+	gl.EnableVertexAttribArray(instanceLength)
+	gl.EnableVertexAttribArray(instanceColor)
+
+	// Vertex buffer for single capsule
+	a: f32 = 1.1
+	vertices := [?]b2.Vec2{{-a, -a}, {a, -a}, {-a, a}, {a, -a}, {a, a}, {-a, a}}
+	gl.BindBuffer(gl.ARRAY_BUFFER, render.vbo_ids[0])
+	gl.BufferData(gl.ARRAY_BUFFER, size_of(vertices), raw_data(&vertices), gl.STATIC_DRAW)
+	gl.VertexAttribPointer(vertexAttribute, 2, gl.FLOAT, gl.FALSE, 0, uintptr(0))
+
+	// Capsule buffer
+	gl.BindBuffer(gl.ARRAY_BUFFER, render.vbo_ids[1])
+	gl.BufferData(gl.ARRAY_BUFFER, CAPSULE_BATCH_SIZE * size_of(Capsule), nil, gl.DYNAMIC_DRAW)
+
+	gl.VertexAttribPointer(instanceTransform, 4, gl.FLOAT, gl.FALSE, size_of(Capsule), offset_of(Capsule, transform))
+	gl.VertexAttribPointer(instanceRadius, 1, gl.FLOAT, gl.FALSE, size_of(Capsule), offset_of(Capsule, radius))
+	gl.VertexAttribPointer(instanceLength, 1, gl.FLOAT, gl.FALSE, size_of(Capsule), offset_of(Capsule, length))
+	// color will get automatically expanded to floats in the shader
+	gl.VertexAttribPointer(instanceColor, 4, gl.UNSIGNED_BYTE, gl.TRUE, size_of(Capsule), offset_of(Capsule, rgba))
+
+	gl.VertexAttribDivisor(instanceTransform, 1)
+	gl.VertexAttribDivisor(instanceRadius, 1)
+	gl.VertexAttribDivisor(instanceLength, 1)
+	gl.VertexAttribDivisor(instanceColor, 1)
+
+	check_opengl()
+
+	// Cleanup
+	gl.BindBuffer(gl.ARRAY_BUFFER, 0)
+	gl.BindVertexArray(0)
+
+	return render
+}
+
+@(private = "file")
+destroy_capsules :: proc(render: ^Capsules) {
+	if render.vao_id != 0 {
+		gl.DeleteVertexArrays(1, &render.vao_id)
+		gl.DeleteBuffers(2, raw_data(&render.vbo_ids))
+	}
+
+	if render.program_id != 0 {
+		gl.DeleteProgram(render.program_id)
+	}
+
+	delete(render.capsules)
+	render^ = {}
+}
+
+add_capsule :: proc "contextless" (render: ^Capsules, p1, p2: b2.Vec2, radius: f32, color: b2.HexColor) {
+	context = g_context
+	d := p2 - p1
+	length := b2.Length(d)
+	if length < 0.001 {
+		fmt.printf("WARNING: sample app: capsule too short!\n")
+		return
+	}
+
+	axis := b2.Vec2{d.x / length, d.y / length}
+	transform := b2.Transform {
+		p = b2.Lerp(p1, p2, 0.5),
+		q = {c = axis.x, s = axis.y},
+	}
+	rgba := make_rgba8(color, 1.0)
+	append(&render.capsules, Capsule{transform, radius, length, rgba})
+}
+
+@(private = "file")
+flush_capsules :: proc(render: ^Capsules, camera: ^Camera) {
+	count := len(render.capsules)
+	if (count == 0) {
+		return
+	}
+
+	gl.UseProgram(render.program_id)
+
+	proj: [16]f32
+	BuildProjectionMatrix(camera, &proj, 0.2)
+
+	gl.UniformMatrix4fv(render.projection_uniform, 1, gl.FALSE, raw_data(&proj))
+	gl.Uniform1f(render.pixel_scale_uniform, camera.height / camera.zoom)
+
+	gl.BindVertexArray(render.vao_id)
+
+	gl.BindBuffer(gl.ARRAY_BUFFER, render.vbo_ids[1])
+	gl.Enable(gl.BLEND)
+	gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+
+	base := 0
+	for count > 0 {
+		batchCount := min(count, CAPSULE_BATCH_SIZE)
+
+		gl.BufferSubData(gl.ARRAY_BUFFER, 0, batchCount * size_of(Capsule), raw_data(render.capsules[base:]))
+		gl.DrawArraysInstanced(gl.TRIANGLES, 0, 6, i32(batchCount))
+		check_opengl()
+
+		count -= CAPSULE_BATCH_SIZE
+		base += CAPSULE_BATCH_SIZE
+	}
+
+	gl.Disable(gl.BLEND)
+
+	gl.BindBuffer(gl.ARRAY_BUFFER, 0)
+	gl.BindVertexArray(0)
+	gl.UseProgram(0)
+
+	clear(&render.capsules)
 }
 
 @(private = "file")
@@ -785,6 +937,7 @@ make_orthographic_matrix :: proc(m: ^[16]f32, left, right, bottom, top, near, fa
 flush_draw :: proc(draw: ^Draw, camera: ^Camera) {
 	// todo
 
+	flush_capsules(&draw.capsules, camera)
 	flush_polygons(&draw.polygons, camera)
 	flush_lines(&draw.lines, camera)
 	flush_text(&draw.font, camera)

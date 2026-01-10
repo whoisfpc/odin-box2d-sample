@@ -152,7 +152,8 @@ DrawSolidCircleFcn :: proc "c" (transform: b2.Transform, radius: f32, color: b2.
 
 @(private = "file")
 DrawSolidCapsuleFcn :: proc "c" (p1, p2: b2.Vec2, radius: f32, color: b2.HexColor, ctx: rawptr) {
-	// todo
+	sample_ctx := cast(^Sample_Context)ctx
+	add_capsule(&sample_ctx.draw.capsules, p1, p2, radius, color)
 }
 
 @(private = "file")
