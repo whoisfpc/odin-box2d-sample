@@ -11,6 +11,21 @@ Weeble :: struct {
 	explosion_magnitude: f32,
 }
 
+@(private = "file")
+friction_callback :: proc "c" (frictionA: f32, userMaterialIdA: i32, frictionB: f32, userMaterialIdB: i32) -> f32 {
+	return 0.1
+}
+
+@(private = "file")
+restitution_callback :: proc "c" (
+	restitutionA: f32,
+	userMaterialIdA: i32,
+	restitutionB: f32,
+	userMaterialIdB: i32,
+) -> f32 {
+	return 1.0
+}
+
 Weeble_create :: proc(ctx: ^Sample_Context) -> ^Sample {
 	sample := sample_generic_create(ctx, Weeble)
 
@@ -20,8 +35,8 @@ Weeble_create :: proc(ctx: ^Sample_Context) -> ^Sample {
 	}
 
 	// Test friction and restitution callbacks
-	b2.World_SetFrictionCallback(sample.world_id, nil)
-	b2.World_SetRestitutionCallback(sample.world_id, nil)
+	b2.World_SetFrictionCallback(sample.world_id, friction_callback)
+	b2.World_SetRestitutionCallback(sample.world_id, restitution_callback)
 
 	ground_id := b2.nullBodyId
 	{
