@@ -480,7 +480,7 @@ main :: proc() {
 			s_ctx.camera.zoom,
 		)
 
-		flush_draw(s_ctx.draw, &s_ctx.camera)
+		draw_flush(s_ctx.draw, &s_ctx.camera)
 
 		update_ui()
 

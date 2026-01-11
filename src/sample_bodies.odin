@@ -95,7 +95,7 @@ Weeble_step :: proc(sample: ^Weeble) {
 	sample_base_step(sample)
 	ctx := sample.ctx
 
-	add_circle(sample.draw, sample.explosion_position, sample.explosion_radius, .Azure)
+	draw_circle(sample.draw, sample.explosion_position, sample.explosion_radius, .Azure)
 	// This shows how to get the velocity of a point on a body
 	local_point := b2.Vec2{0, 2}
 	world_point := b2.Body_GetWorldPoint(sample.weeble_id, local_point)

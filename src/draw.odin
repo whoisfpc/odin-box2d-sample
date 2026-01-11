@@ -54,6 +54,73 @@ convert_world_to_screen :: proc "contextless" (camera: ^Camera, world_point: [2]
 	return ps
 }
 
+// Convert from world coordinates to normalized device coordinates.
+// http://www.songho.ca/opengl/gl_projectionmatrix.html
+// This also includes the view transform
+@(private = "file")
+BuildProjectionMatrix :: proc(camera: ^Camera, m: ^[16]f32, zBias: f32) {
+	ratio := camera.width / camera.height
+	extents := b2.Vec2{camera.zoom * ratio, camera.zoom}
+
+	lower := camera.center - extents
+	upper := camera.center + extents
+	w := upper.x - lower.x
+	h := upper.y - lower.y
+
+	m[0] = 2.0 / w
+	m[1] = 0.0
+	m[2] = 0.0
+	m[3] = 0.0
+
+	m[4] = 0.0
+	m[5] = 2.0 / h
+	m[6] = 0.0
+	m[7] = 0.0
+
+	m[8] = 0.0
+	m[9] = 0.0
+	m[10] = -1.0
+	m[11] = 0.0
+
+	m[12] = -2.0 * camera.center.x / w
+	m[13] = -2.0 * camera.center.y / h
+	m[14] = zBias
+	m[15] = 1.0
+}
+
+@(private = "file")
+make_orthographic_matrix :: proc(m: ^[16]f32, left, right, bottom, top, near, far: f32) {
+	m[0] = 2.0 / (right - left)
+	m[1] = 0.0
+	m[2] = 0.0
+	m[3] = 0.0
+
+	m[4] = 0.0
+	m[5] = 2.0 / (top - bottom)
+	m[6] = 0.0
+	m[7] = 0.0
+
+	m[8] = 0.0
+	m[9] = 0.0
+	m[10] = -2.0 / (far - near)
+	m[11] = 0.0
+
+	m[12] = -(right + left) / (right - left)
+	m[13] = -(top + bottom) / (top - bottom)
+	m[14] = -(far + near) / (far - near)
+	m[15] = 1.0
+}
+
+get_view_bounds :: proc(camera: ^Camera) -> b2.AABB {
+	if camera.height > 0 || camera.width > 0 {
+		return b2.AABB{lowerBound = b2.Vec2_zero, upperBound = b2.Vec2_zero}
+	}
+	return b2.AABB {
+		lowerBound = convert_screen_to_world(camera, {0, camera.height}),
+		upperBound = convert_screen_to_world(camera, {camera.width, 0}),
+	}
+}
+
 RGBA8 :: [4]u8
 
 @(private = "file")
@@ -80,118 +147,6 @@ Point_Render :: struct {
 	vbo_id:             u32,
 	program_id:         u32,
 	projection_uniform: i32,
-}
-
-LINE_BATCH_SIZE :: (2 * 2048)
-
-Vertex_Data :: struct {
-	position: b2.Vec2,
-	rgba:     RGBA8,
-}
-
-Line_Render :: struct {
-	points:             [dynamic]Vertex_Data,
-	vao_id:             u32,
-	vbo_id:             u32,
-	program_id:         u32,
-	projection_uniform: i32,
-}
-
-CAPSULE_BATCH_SIZE :: 2048
-
-Capsule :: struct {
-	transform: b2.Transform,
-	radius:    f32,
-	length:    f32,
-	rgba:      RGBA8,
-}
-
-Capsules :: struct {
-	capsules:            [dynamic]Capsule,
-	vao_id:              u32,
-	vbo_ids:             [2]u32,
-	program_id:          u32,
-	projection_uniform:  i32,
-	pixel_scale_uniform: i32,
-}
-
-POLYGON_BATCH_SIZE :: 2048
-
-Polygon :: struct {
-	transform:      b2.Transform,
-	p1, p2, p3, p4: b2.Vec2,
-	p5, p6, p7, p8: b2.Vec2,
-	count:          i32,
-	radius:         f32,
-
-	// keep color small
-	color:          RGBA8,
-}
-
-Polygons :: struct {
-	polygons:          [dynamic]Polygon,
-	vaoId:             u32,
-	vboIds:            [2]u32,
-	programId:         u32,
-	projectionUniform: i32,
-	pixelScaleUniform: i32,
-}
-
-FONT_FIRST_CHARACTER :: 32
-FONT_CHARACTER_COUNT :: 96
-FONT_ATLAS_WIDTH :: 512
-FONT_ATLAS_HEIGHT :: 512
-
-// The number of vertices the vbo can hold. Must be a multiple of 6.
-FONT_BATCH_SIZE :: (6 * 10000)
-
-Font_Vertex :: struct {
-	position: [2]f32,
-	uv:       [2]f32,
-	color:    RGBA8,
-}
-
-Font :: struct {
-	font_size:  f32,
-	vertices:   [dynamic]Font_Vertex,
-	characters: []tt.bakedchar,
-	texture_id: u32,
-	vao_id:     u32,
-	vbo_id:     u32,
-	program_id: u32,
-}
-
-Draw :: struct {
-	// TODO
-	// Background background;
-	points:   Point_Render,
-	lines:    Line_Render,
-	// CircleRender hollowCircles;
-	// SolidCircles circles;
-	capsules: Capsules,
-	polygons: Polygons,
-	font:     Font,
-}
-
-draw_create :: proc() -> ^Draw {
-	draw := new(Draw)
-	// todo
-	draw.points = create_point_render()
-	draw.lines = create_line_render()
-	draw.capsules = create_capsules()
-	draw.polygons = create_polygons()
-	draw.font = font_create("data/droid_sans.ttf", 18.0)
-	return draw
-}
-
-draw_destroy :: proc(draw: ^Draw) {
-	// todo
-	destroy_point_render(&draw.points)
-	destroy_line_render(&draw.lines)
-	destroy_capsules(&draw.capsules)
-	destroy_polygons(&draw.polygons)
-	font_destroy(&draw.font)
-	free(draw)
 }
 
 @(private = "file")
@@ -303,10 +258,26 @@ flush_points :: proc(render: ^Point_Render, camera: ^Camera) {
 	clear(&render.points)
 }
 
-draw_point :: proc "contextless" (draw: ^Draw, position: b2.Vec2, size: f32, color: b2.HexColor) {
-	context = g_context
+@(private = "file")
+add_point :: proc(render: ^Point_Render, position: b2.Vec2, size: f32, color: b2.HexColor) {
 	rgba := make_rgba8(color, 1.0)
-	append(&draw.points.points, Point_Data{position, size, rgba})
+	append(&render.points, Point_Data{position, size, rgba})
+}
+
+
+LINE_BATCH_SIZE :: (2 * 2048)
+
+Vertex_Data :: struct {
+	position: b2.Vec2,
+	rgba:     RGBA8,
+}
+
+Line_Render :: struct {
+	points:             [dynamic]Vertex_Data,
+	vao_id:             u32,
+	vbo_id:             u32,
+	program_id:         u32,
+	projection_uniform: i32,
 }
 
 @(private = "file")
@@ -417,15 +388,29 @@ flush_lines :: proc(render: ^Line_Render, camera: ^Camera) {
 	clear(&render.points)
 }
 
-draw_line :: proc "contextless" (draw: ^Draw, p1, p2: b2.Vec2, color: b2.HexColor) {
-	context = g_context
+@(private = "file")
+add_line :: proc(render: ^Line_Render, p1, p2: b2.Vec2, color: b2.HexColor) {
 	rgba := make_rgba8(color, 1.0)
-	append(&draw.lines.points, Vertex_Data{p1, rgba})
-	append(&draw.lines.points, Vertex_Data{p2, rgba})
+	append(&render.points, Vertex_Data{p1, rgba})
+	append(&render.points, Vertex_Data{p2, rgba})
 }
 
-add_circle :: proc "contextless" (draw: ^Draw, center: b2.Vec2, radius: f32, color: b2.HexColor) {
-	// todo
+CAPSULE_BATCH_SIZE :: 2048
+
+Capsule :: struct {
+	transform: b2.Transform,
+	radius:    f32,
+	length:    f32,
+	rgba:      RGBA8,
+}
+
+Capsules :: struct {
+	capsules:            [dynamic]Capsule,
+	vao_id:              u32,
+	vbo_ids:             [2]u32,
+	program_id:          u32,
+	projection_uniform:  i32,
+	pixel_scale_uniform: i32,
 }
 
 @(private = "file")
@@ -500,8 +485,8 @@ destroy_capsules :: proc(render: ^Capsules) {
 	render^ = {}
 }
 
-add_capsule :: proc "contextless" (render: ^Capsules, p1, p2: b2.Vec2, radius: f32, color: b2.HexColor) {
-	context = g_context
+@(private = "file")
+add_solid_capsule :: proc(render: ^Capsules, p1, p2: b2.Vec2, radius: f32, color: b2.HexColor) {
 	d := p2 - p1
 	length := b2.Length(d)
 	if length < 0.001 {
@@ -558,6 +543,29 @@ flush_capsules :: proc(render: ^Capsules, camera: ^Camera) {
 	gl.UseProgram(0)
 
 	clear(&render.capsules)
+}
+
+
+POLYGON_BATCH_SIZE :: 2048
+
+Polygon :: struct {
+	transform:      b2.Transform,
+	p1, p2, p3, p4: b2.Vec2,
+	p5, p6, p7, p8: b2.Vec2,
+	count:          i32,
+	radius:         f32,
+
+	// keep color small
+	color:          RGBA8,
+}
+
+Polygons :: struct {
+	polygons:          [dynamic]Polygon,
+	vaoId:             u32,
+	vboIds:            [2]u32,
+	programId:         u32,
+	projectionUniform: i32,
+	pixelScaleUniform: i32,
 }
 
 @(private = "file")
@@ -691,15 +699,15 @@ flush_polygons :: proc(render: ^Polygons, camera: ^Camera) {
 	clear(&render.polygons)
 }
 
-draw_solid_polygon :: proc "contextless" (
-	draw: ^Draw,
+@(private = "file")
+add_polygon :: proc(
+	render: ^Polygons,
 	transform: b2.Transform,
 	vertices: [^]b2.Vec2,
 	vertexCount: i32,
 	radius: f32,
 	color: b2.HexColor,
 ) {
-	context = g_context
 	data: Polygon
 	data.transform = transform
 
@@ -713,11 +721,36 @@ draw_solid_polygon :: proc "contextless" (
 	data.radius = radius
 	data.color = make_rgba8(color, 1.0)
 
-	append(&draw.polygons.polygons, data)
+	append(&render.polygons, data)
+}
+
+
+FONT_FIRST_CHARACTER :: 32
+FONT_CHARACTER_COUNT :: 96
+FONT_ATLAS_WIDTH :: 512
+FONT_ATLAS_HEIGHT :: 512
+
+// The number of vertices the vbo can hold. Must be a multiple of 6.
+FONT_BATCH_SIZE :: (6 * 10000)
+
+Font_Vertex :: struct {
+	position: [2]f32,
+	uv:       [2]f32,
+	color:    RGBA8,
+}
+
+Font :: struct {
+	font_size:  f32,
+	vertices:   [dynamic]Font_Vertex,
+	characters: []tt.bakedchar,
+	texture_id: u32,
+	vao_id:     u32,
+	vbo_id:     u32,
+	program_id: u32,
 }
 
 @(private = "file")
-font_create :: proc(font_path: string, font_size: f32) -> Font {
+create_font :: proc(font_path: string, font_size: f32) -> Font {
 	font: Font
 	file_buffer, err := os.read_entire_file_from_path(font_path, context.allocator)
 	if err != nil {
@@ -785,7 +818,7 @@ font_create :: proc(font_path: string, font_size: f32) -> Font {
 }
 
 @(private = "file")
-font_destroy :: proc(font: ^Font) {
+destroy_font :: proc(font: ^Font) {
 	if font.program_id != 0 {
 		gl.DeleteProgram(font.program_id)
 	}
@@ -799,7 +832,7 @@ font_destroy :: proc(font: ^Font) {
 }
 
 @(private = "file")
-draw_add_text :: proc(font: ^Font, x, y: f32, color: b2.HexColor, text: string) {
+add_text :: proc(font: ^Font, x, y: f32, color: b2.HexColor, text: string) {
 	if len(text) == 0 {
 		return
 	}
@@ -875,85 +908,120 @@ flush_text :: proc(font: ^Font, camera: ^Camera) {
 	clear(&font.vertices)
 }
 
-draw_screen_string :: proc(draw: ^Draw, x, y: f32, color: b2.HexColor, format: string, args: ..any) {
-	text := fmt.aprintf(format, ..args)
-	defer delete(text)
-	draw_add_text(&draw.font, x, y, color, text)
+Draw :: struct {
+	// TODO
+	// Background background;
+	points:   Point_Render,
+	lines:    Line_Render,
+	// CircleRender hollowCircles;
+	// SolidCircles circles;
+	capsules: Capsules,
+	polygons: Polygons,
+	font:     Font,
 }
 
-// Convert from world coordinates to normalized device coordinates.
-// http://www.songho.ca/opengl/gl_projectionmatrix.html
-// This also includes the view transform
-@(private = "file")
-BuildProjectionMatrix :: proc(camera: ^Camera, m: ^[16]f32, zBias: f32) {
-	ratio := camera.width / camera.height
-	extents := b2.Vec2{camera.zoom * ratio, camera.zoom}
-
-	lower := camera.center - extents
-	upper := camera.center + extents
-	w := upper.x - lower.x
-	h := upper.y - lower.y
-
-	m[0] = 2.0 / w
-	m[1] = 0.0
-	m[2] = 0.0
-	m[3] = 0.0
-
-	m[4] = 0.0
-	m[5] = 2.0 / h
-	m[6] = 0.0
-	m[7] = 0.0
-
-	m[8] = 0.0
-	m[9] = 0.0
-	m[10] = -1.0
-	m[11] = 0.0
-
-	m[12] = -2.0 * camera.center.x / w
-	m[13] = -2.0 * camera.center.y / h
-	m[14] = zBias
-	m[15] = 1.0
+draw_create :: proc() -> ^Draw {
+	draw := new(Draw)
+	// todo
+	draw.points = create_point_render()
+	draw.lines = create_line_render()
+	draw.capsules = create_capsules()
+	draw.polygons = create_polygons()
+	draw.font = create_font("data/droid_sans.ttf", 18.0)
+	return draw
 }
 
-@(private = "file")
-make_orthographic_matrix :: proc(m: ^[16]f32, left, right, bottom, top, near, far: f32) {
-	m[0] = 2.0 / (right - left)
-	m[1] = 0.0
-	m[2] = 0.0
-	m[3] = 0.0
-
-	m[4] = 0.0
-	m[5] = 2.0 / (top - bottom)
-	m[6] = 0.0
-	m[7] = 0.0
-
-	m[8] = 0.0
-	m[9] = 0.0
-	m[10] = -2.0 / (far - near)
-	m[11] = 0.0
-
-	m[12] = -(right + left) / (right - left)
-	m[13] = -(top + bottom) / (top - bottom)
-	m[14] = -(far + near) / (far - near)
-	m[15] = 1.0
+draw_destroy :: proc(draw: ^Draw) {
+	// todo
+	destroy_point_render(&draw.points)
+	destroy_line_render(&draw.lines)
+	destroy_capsules(&draw.capsules)
+	destroy_polygons(&draw.polygons)
+	destroy_font(&draw.font)
+	free(draw)
 }
 
-flush_draw :: proc(draw: ^Draw, camera: ^Camera) {
+draw_flush :: proc(draw: ^Draw, camera: ^Camera) {
 	// todo
 
+	flush_points(&draw.points, camera)
+	flush_lines(&draw.lines, camera)
 	flush_capsules(&draw.capsules, camera)
 	flush_polygons(&draw.polygons, camera)
-	flush_lines(&draw.lines, camera)
 	flush_text(&draw.font, camera)
 	check_opengl()
 }
 
-get_view_bounds :: proc(camera: ^Camera) -> b2.AABB {
-	if camera.height > 0 || camera.width > 0 {
-		return b2.AABB{lowerBound = b2.Vec2_zero, upperBound = b2.Vec2_zero}
+draw_point :: proc "contextless" (draw: ^Draw, position: b2.Vec2, size: f32, color: b2.HexColor) {
+	context = g_context
+	add_point(&draw.points, position, size, color)
+}
+
+draw_line :: proc "contextless" (draw: ^Draw, p1, p2: b2.Vec2, color: b2.HexColor) {
+	context = g_context
+	add_line(&draw.lines, p1, p2, color)
+}
+
+draw_circle :: proc "contextless" (draw: ^Draw, center: b2.Vec2, radius: f32, color: b2.HexColor) {
+	// todo
+}
+
+draw_solid_circle :: proc "contextless" (draw: ^Draw, transform: b2.Transform, radius: f32, color: b2.HexColor) {
+	// todo
+}
+
+draw_solid_capsule :: proc "contextless" (draw: ^Draw, p1, p2: b2.Vec2, radius: f32, color: b2.HexColor) {
+	context = g_context
+	add_solid_capsule(&draw.capsules, p1, p2, radius, color)
+}
+
+draw_polygon :: proc "contextless" (draw: ^Draw, vertices: [^]b2.Vec2, vertexCount: i32, color: b2.HexColor) {
+	for i: i32 = 0; i < vertexCount; i += 1 {
+		v1 := vertices[i]
+		v2 := vertices[(i + 1) % vertexCount]
+		draw_line(draw, v1, v2, color)
 	}
-	return b2.AABB {
-		lowerBound = convert_screen_to_world(camera, {0, camera.height}),
-		upperBound = convert_screen_to_world(camera, {camera.width, 0}),
-	}
+}
+
+draw_solid_polygon :: proc "contextless" (
+	draw: ^Draw,
+	transform: b2.Transform,
+	vertices: [^]b2.Vec2,
+	vertexCount: i32,
+	radius: f32,
+	color: b2.HexColor,
+) {
+	context = g_context
+	add_polygon(&draw.polygons, transform, vertices, vertexCount, radius, color)
+}
+
+draw_transform :: proc "contextless" (draw: ^Draw, transform: b2.Transform, scale: f32) {
+	// todo
+}
+
+draw_bounds :: proc "contextless" (draw: ^Draw, aabb: b2.AABB, color: b2.HexColor) {
+	// todo
+}
+
+draw_screen_string :: proc(draw: ^Draw, x, y: f32, color: b2.HexColor, format: string, args: ..any) {
+	text := fmt.aprintf(format, ..args)
+	defer delete(text)
+	add_text(&draw.font, x, y, color, text)
+}
+
+draw_world_string :: proc "contextless" (
+	draw: ^Draw,
+	camera: ^Camera,
+	p: b2.Vec2,
+	color: b2.HexColor,
+	format: string,
+	args: ..any,
+) {
+	context = g_context
+	ps := convert_world_to_screen(camera, p)
+	draw_screen_string(draw, ps.x, ps.y, color, format, ..args)
+}
+
+draw_background :: proc "contextless" (draw: ^Draw, camera: ^Camera) {
+	// todo
 }

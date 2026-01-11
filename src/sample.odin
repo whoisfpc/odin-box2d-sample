@@ -152,12 +152,8 @@ sample_context_load :: proc(ctx: ^Sample_Context) {
 
 @(private = "file")
 DrawPolygonFcn :: proc "c" (vertices: [^]b2.Vec2, vertexCount: i32, color: b2.HexColor, ctx: rawptr) {
-	for i: i32 = 0; i < vertexCount; i += 1 {
-		v1 := vertices[i]
-		v2 := vertices[(i + 1) % vertexCount]
-		sample_ctx := cast(^Sample_Context)ctx
-		draw_line(sample_ctx.draw, v1, v2, color)
-	}
+	sample_ctx := cast(^Sample_Context)ctx
+	draw_polygon(sample_ctx.draw, vertices, vertexCount, color)
 }
 
 @(private = "file")
@@ -176,18 +172,19 @@ DrawSolidPolygonFcn :: proc "c" (
 @(private = "file")
 DrawCircleFcn :: proc "c" (center: b2.Vec2, radius: f32, color: b2.HexColor, ctx: rawptr) {
 	sample_ctx := cast(^Sample_Context)ctx
-	add_circle(sample_ctx.draw, center, radius, color)
+	draw_circle(sample_ctx.draw, center, radius, color)
 }
 
 @(private = "file")
 DrawSolidCircleFcn :: proc "c" (transform: b2.Transform, radius: f32, color: b2.HexColor, ctx: rawptr) {
-	// todo
+	sample_ctx := cast(^Sample_Context)ctx
+	draw_solid_circle(sample_ctx.draw, transform, radius, color)
 }
 
 @(private = "file")
 DrawSolidCapsuleFcn :: proc "c" (p1, p2: b2.Vec2, radius: f32, color: b2.HexColor, ctx: rawptr) {
 	sample_ctx := cast(^Sample_Context)ctx
-	add_capsule(&sample_ctx.draw.capsules, p1, p2, radius, color)
+	draw_solid_capsule(sample_ctx.draw, p1, p2, radius, color)
 }
 
 @(private = "file")
@@ -198,7 +195,8 @@ DrawSegmentFcn :: proc "c" (p1, p2: b2.Vec2, color: b2.HexColor, ctx: rawptr) {
 
 @(private = "file")
 DrawTransformFcn :: proc "c" (transform: b2.Transform, ctx: rawptr) {
-	// todo
+	sample_ctx := cast(^Sample_Context)ctx
+	draw_transform(sample_ctx.draw, transform, 1.0)
 }
 
 @(private = "file")
@@ -209,11 +207,11 @@ DrawPointFcn :: proc "c" (p: b2.Vec2, size: f32, color: b2.HexColor, ctx: rawptr
 
 @(private = "file")
 DrawStringFcn :: proc "c" (p: b2.Vec2, s: cstring, color: b2.HexColor, ctx: rawptr) {
-	// todo
+	sample_ctx := cast(^Sample_Context)ctx
+	draw_world_string(sample_ctx.draw, &sample_ctx.camera, p, color, string(s))
 }
 
 sample_context_save :: proc(ctx: ^Sample_Context) {
-	// todo
 	settings := Settings {
 		sample_index = ctx.sample_index,
 		draw_shapes  = ctx.debug_draw.drawShapes,
