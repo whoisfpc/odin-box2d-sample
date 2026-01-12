@@ -3,6 +3,134 @@ package main
 import im "../odin-imgui"
 import b2 "vendor:box2d"
 
+BodyType :: struct {
+	using sample:       Sample,
+	attachmentId:       b2.BodyId,
+	secondAttachmentId: b2.BodyId,
+	platformId:         b2.BodyId,
+	touchingBodyId:     b2.BodyId,
+	floatingBodyId:     b2.BodyId,
+	type:               b2.BodyType,
+	speed:              f32,
+	isEnabled:          bool,
+}
+
+BodyType_create :: proc(ctx: ^Sample_Context) -> ^Sample {
+	sample := sample_generic_create(ctx, BodyType)
+
+	if ctx.restart == false {
+		ctx.camera.center = {0.8, 6.4}
+		ctx.camera.zoom = 25 * 0.4
+	}
+
+	sample.type = .dynamicBody
+	sample.isEnabled = true
+
+	ground_id := b2.nullBodyId
+	{
+		body_def := b2.DefaultBodyDef()
+		body_def.name = "ground"
+		ground_id = b2.CreateBody(sample.world_id, body_def)
+
+		segment := b2.Segment{b2.Vec2{-20, 0}, b2.Vec2{20, 0}}
+		shape_def := b2.DefaultShapeDef()
+		_ = b2.CreateSegmentShape(ground_id, shape_def, segment)
+	}
+
+	// Define attachment
+	{
+		body_def := b2.DefaultBodyDef()
+		body_def.type = .dynamicBody
+		body_def.position = {-2, 3}
+		body_def.name = "attach1"
+		sample.attachmentId = b2.CreateBody(sample.world_id, body_def)
+
+		box := b2.MakeBox(0.5, 2)
+		shape_def := b2.DefaultShapeDef()
+		shape_def.density = 1.0
+		_ = b2.CreatePolygonShape(sample.attachmentId, shape_def, box)
+	}
+
+	// Define second attachment
+	{
+		body_def := b2.DefaultBodyDef()
+		body_def.type = sample.type
+		body_def.isEnabled = sample.isEnabled
+		body_def.position = {3, 3}
+		body_def.name = "attach2"
+		sample.secondAttachmentId = b2.CreateBody(sample.world_id, body_def)
+
+		box := b2.MakeBox(0.5, 2)
+		shape_def := b2.DefaultShapeDef()
+		shape_def.density = 1.0
+		_ = b2.CreatePolygonShape(sample.secondAttachmentId, shape_def, box)
+	}
+
+	// Define platform
+	// {
+	// 	body_def := b2.DefaultBodyDef()
+	// 	body_def.type = sample.type
+	// 	body_def.isEnabled = sample.isEnabled
+	// 	body_def.position = {-4, 5}
+	// 	body_def.name = "platform"
+	// 	sample.platformId = b2.CreateBody(sample.world_id, body_def)
+
+	// 	box := b2.MakeOffsetBox(0.5, 4, {4.0, 0}, b2.MakeRot(0.5 * b2.PI))
+
+	// 	shape_def := b2.DefaultShapeDef()
+	// 	shape_def.density = 2.0
+	// 	_ = b2.CreatePolygonShape(sample.platformId, shape_def, box)
+
+	// 	revolute_def := b2.DefaultRevoluteJointDef()
+	// 	pivot := b2.Vec2{-2, 5}
+	// }
+
+	// todo: other bodies
+
+	// Create a separate floating body
+	{
+		body_def := b2.DefaultBodyDef()
+		body_def.type = sample.type
+		body_def.isEnabled = sample.isEnabled
+		body_def.position = {-8, 12}
+		body_def.gravityScale = 0.0
+		body_def.name = "floater"
+		sample.floatingBodyId = b2.CreateBody(sample.world_id, body_def)
+
+		circle := b2.Circle{{0, 0.5}, 0.25}
+
+		shape_def := b2.DefaultShapeDef()
+		shape_def.density = 2.0
+		_ = b2.CreateCircleShape(sample.floatingBodyId, shape_def, circle)
+	}
+
+	return sample
+}
+
+BodyType_update_gui :: proc(sample: ^BodyType) {
+	// ctx := sample.ctx
+}
+
+BodyType_step :: proc(sample: ^BodyType) {
+	// Drive the kinematic body.
+	if sample.type == .kinematicBody {
+		p := b2.Body_GetPosition(sample.platformId)
+		v := b2.Body_GetLinearVelocity(sample.platformId)
+
+		if (p.x < -14.0 && v.x < 0.0) || (p.x > 6.0 && v.x > 0.0) {
+			v.x = -v.x
+			b2.Body_SetLinearVelocity(sample.platformId, v)
+		}
+	}
+
+	sample_base_step(sample)
+}
+
+BodyType_destroy :: proc(sample: ^BodyType) {
+	sample_base_destroy(sample)
+	free(sample)
+}
+
 Weeble :: struct {
 	using sample:        Sample,
 	weeble_id:           b2.BodyId,

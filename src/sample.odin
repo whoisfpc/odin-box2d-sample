@@ -75,6 +75,7 @@ Sample :: struct {
 	variant:           union {
 		^BenchmarkBarrel24,
 		^Weeble,
+		^BodyType,
 	},
 }
 
@@ -96,6 +97,7 @@ register_all_samples :: proc() {
 	// todo: add all samples
 	register_sample("Benchmark", "Barrel 2.4", BenchmarkBarrel24_create)
 	register_sample("Bodies", "Weeble", Weeble_create)
+	register_sample("Bodies", "Body Type", BodyType_create)
 	slice.sort_by(g_sample_entries[:], proc(i, j: Sample_Entry) -> bool {
 		if i.category != j.category {
 			return i.category < j.category
@@ -304,6 +306,8 @@ sample_variant_destroy :: proc(sample: ^Sample) {
 		BenchmarkBarrel24_destroy(v)
 	case ^Weeble:
 		Weeble_destroy(v)
+	case ^BodyType:
+		BodyType_destroy(v)
 	case:
 		panic("unimplement destroy")
 	}
@@ -488,6 +492,8 @@ sample_variant_step :: proc(sample: ^Sample) {
 	#partial switch v in sample.variant {
 	case ^Weeble:
 		Weeble_step(v)
+	case ^BodyType:
+		BodyType_step(v)
 	case:
 		sample_base_step(sample)
 	}
@@ -497,6 +503,8 @@ sample_variant_update_gui :: proc(sample: ^Sample) {
 	#partial switch v in sample.variant {
 	case ^Weeble:
 		Weeble_update_gui(v)
+	case ^BodyType:
+		BodyType_update_gui(v)
 	}
 }
 

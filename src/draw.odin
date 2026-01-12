@@ -1154,11 +1154,24 @@ draw_solid_polygon :: proc "contextless" (
 }
 
 draw_transform :: proc "contextless" (draw: ^Draw, transform: b2.Transform, scale: f32) {
-	// todo
+	context = g_context
+	p1 := transform.p
+	p2 := p1 + scale * b2.Rot_GetXAxis(transform.q)
+	add_line(&draw.lines, p1, p2, .Red)
+
+	p3 := p1 + scale * b2.Rot_GetYAxis(transform.q)
+	add_line(&draw.lines, p1, p3, .Green)
 }
 
-draw_bounds :: proc "contextless" (draw: ^Draw, aabb: b2.AABB, color: b2.HexColor) {
-	// todo
+draw_bounds :: proc(draw: ^Draw, aabb: b2.AABB, color: b2.HexColor) {
+	p1 := aabb.lowerBound
+	p2 := b2.Vec2{aabb.upperBound.x, aabb.lowerBound.y}
+	p3 := aabb.upperBound
+	p4 := b2.Vec2{aabb.lowerBound.x, aabb.upperBound.y}
+	add_line(&draw.lines, p1, p2, color)
+	add_line(&draw.lines, p2, p3, color)
+	add_line(&draw.lines, p3, p4, color)
+	add_line(&draw.lines, p4, p1, color)
 }
 
 draw_screen_string :: proc(draw: ^Draw, x, y: f32, color: b2.HexColor, format: string, args: ..any) {
