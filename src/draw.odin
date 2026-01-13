@@ -543,6 +543,164 @@ flush_circles :: proc(render: ^Circle_Render, camera: ^Camera) {
 	clear(&render.circles)
 }
 
+SOLID_CIRCLE_BATCH_SIZE :: 2048
+
+Solid_Circle :: struct {
+	transform: b2.Transform,
+	radius:    f32,
+	rgba:      RGBA8,
+}
+
+// Draws SDF circles using quad instancing. Apparently instancing of quads can be slow on older GPUs.
+// https://www.reddit.com/r/opengl/comments/q7yikr/how_to_draw_several_quads_through_instancing/
+// https://www.g-truc.net/post-0666.html
+Solid_Circles :: struct {
+	circles:             [dynamic]Solid_Circle,
+	vao_id:              u32,
+	vbo_ids:             [2]u32,
+	program_id:          u32,
+	projection_uniform:  i32,
+	pixel_scale_uniform: i32,
+}
+
+@(private = "file")
+create_solid_circles :: proc() -> Solid_Circles {
+	render: Solid_Circles
+
+	render.circles = make([dynamic]Solid_Circle, 0, SOLID_CIRCLE_BATCH_SIZE)
+	render.program_id = create_program_from_files("data/solid_circle.vs", "data/solid_circle.fs")
+	render.projection_uniform = gl.GetUniformLocation(render.program_id, "projectionMatrix")
+	render.pixel_scale_uniform = gl.GetUniformLocation(render.program_id, "pixelScale")
+
+	vertexAttribute: u32 = 0
+	instanceTransform: u32 = 1
+	instanceRadius: u32 = 2
+	instanceColor: u32 = 3
+
+	// Generate
+	gl.GenVertexArrays(1, &render.vao_id)
+	gl.GenBuffers(2, raw_data(&render.vbo_ids))
+
+	gl.BindVertexArray(render.vao_id)
+	gl.EnableVertexAttribArray(vertexAttribute)
+	gl.EnableVertexAttribArray(instanceTransform)
+	gl.EnableVertexAttribArray(instanceRadius)
+	gl.EnableVertexAttribArray(instanceColor)
+
+	// Vertex buffer for single circle
+	a: f32 = 1.1
+	vertices := [?]b2.Vec2{{-a, -a}, {a, -a}, {-a, a}, {a, -a}, {a, a}, {-a, a}}
+	gl.BindBuffer(gl.ARRAY_BUFFER, render.vbo_ids[0])
+	gl.BufferData(gl.ARRAY_BUFFER, size_of(vertices), raw_data(&vertices), gl.STATIC_DRAW)
+	gl.VertexAttribPointer(vertexAttribute, 2, gl.FLOAT, gl.FALSE, 0, uintptr(0))
+
+	// Circle buffer
+	gl.BindBuffer(gl.ARRAY_BUFFER, render.vbo_ids[1])
+	gl.BufferData(gl.ARRAY_BUFFER, CIRCLE_BATCH_SIZE * size_of(Solid_Circle), nil, gl.DYNAMIC_DRAW)
+
+	gl.VertexAttribPointer(
+		instanceTransform,
+		4,
+		gl.FLOAT,
+		gl.FALSE,
+		size_of(Solid_Circle),
+		offset_of(Solid_Circle, transform),
+	)
+	gl.VertexAttribPointer(
+		instanceRadius,
+		1,
+		gl.FLOAT,
+		gl.FALSE,
+		size_of(Solid_Circle),
+		offset_of(Solid_Circle, radius),
+	)
+	// color will get automatically expanded to floats in the shader
+	gl.VertexAttribPointer(
+		instanceColor,
+		4,
+		gl.UNSIGNED_BYTE,
+		gl.TRUE,
+		size_of(Solid_Circle),
+		offset_of(Solid_Circle, rgba),
+	)
+
+	gl.VertexAttribDivisor(instanceTransform, 1)
+	gl.VertexAttribDivisor(instanceRadius, 1)
+	gl.VertexAttribDivisor(instanceColor, 1)
+
+	check_opengl()
+
+	// Cleanup
+	gl.BindBuffer(gl.ARRAY_BUFFER, 0)
+	gl.BindVertexArray(0)
+
+	return render
+}
+
+@(private = "file")
+destroy_solid_circles :: proc(render: ^Solid_Circles) {
+	if render.vao_id != 0 {
+		gl.DeleteVertexArrays(1, &render.vao_id)
+		gl.DeleteBuffers(2, raw_data(&render.vbo_ids))
+	}
+
+	if render.program_id != 0 {
+		gl.DeleteProgram(render.program_id)
+	}
+
+	delete(render.circles)
+	render^ = {}
+}
+
+@(private = "file")
+add_solid_circle :: proc(render: ^Solid_Circles, transform: b2.Transform, radius: f32, color: b2.HexColor) {
+	rgba := make_rgba8(color, 1.0)
+	append(&render.circles, Solid_Circle{transform, radius, rgba})
+}
+
+@(private = "file")
+flush_solid_circles :: proc(render: ^Solid_Circles, camera: ^Camera) {
+	count := len(render.circles)
+	if (count == 0) {
+		return
+	}
+
+	gl.UseProgram(render.program_id)
+
+	proj: [16]f32
+	BuildProjectionMatrix(camera, &proj, 0.2)
+
+	gl.UniformMatrix4fv(render.projection_uniform, 1, gl.FALSE, raw_data(&proj))
+	gl.Uniform1f(render.pixel_scale_uniform, camera.height / camera.zoom)
+
+	gl.BindVertexArray(render.vao_id)
+
+	gl.BindBuffer(gl.ARRAY_BUFFER, render.vbo_ids[1])
+	gl.Enable(gl.BLEND)
+	gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+
+	base := 0
+	for count > 0 {
+		batchCount := min(count, SOLID_CIRCLE_BATCH_SIZE)
+
+		gl.BufferSubData(gl.ARRAY_BUFFER, 0, batchCount * size_of(Solid_Circle), raw_data(render.circles[base:]))
+		gl.DrawArraysInstanced(gl.TRIANGLES, 0, 6, i32(batchCount))
+		check_opengl()
+
+		count -= SOLID_CIRCLE_BATCH_SIZE
+		base += SOLID_CIRCLE_BATCH_SIZE
+	}
+
+	gl.Disable(gl.BLEND)
+
+	gl.BindBuffer(gl.ARRAY_BUFFER, 0)
+	gl.BindVertexArray(0)
+	gl.UseProgram(0)
+
+	clear(&render.circles)
+}
+
+
 CAPSULE_BATCH_SIZE :: 2048
 
 Capsule :: struct {
@@ -1062,7 +1220,7 @@ Draw :: struct {
 	points:        Point_Render,
 	lines:         Line_Render,
 	hollowCircles: Circle_Render,
-	// SolidCircles circles;
+	solidCircles:  Solid_Circles,
 	capsules:      Capsules,
 	polygons:      Polygons,
 	font:          Font,
@@ -1075,7 +1233,7 @@ draw_create :: proc() -> ^Draw {
 	draw.points = create_point_render()
 	draw.lines = create_line_render()
 	draw.hollowCircles = create_circles()
-	//draw->circles = CreateSolidCircles();
+	draw.solidCircles = create_solid_circles()
 	draw.capsules = create_capsules()
 	draw.polygons = create_polygons()
 	draw.font = create_font("data/droid_sans.ttf", 18.0)
@@ -1088,7 +1246,7 @@ draw_destroy :: proc(draw: ^Draw) {
 	destroy_point_render(&draw.points)
 	destroy_line_render(&draw.lines)
 	destroy_circles(&draw.hollowCircles)
-	//DestroySolidCircles( &draw->circles );
+	destroy_solid_circles(&draw.solidCircles)
 	destroy_capsules(&draw.capsules)
 	destroy_polygons(&draw.polygons)
 	destroy_font(&draw.font)
@@ -1099,7 +1257,7 @@ draw_flush :: proc(draw: ^Draw, camera: ^Camera) {
 	// todo
 
 	// order matters
-	//FlushSolidCircles( &draw->circles, camera );
+	flush_solid_circles(&draw.solidCircles, camera)
 	flush_capsules(&draw.capsules, camera)
 	flush_polygons(&draw.polygons, camera)
 	flush_circles(&draw.hollowCircles, camera)
@@ -1125,7 +1283,8 @@ draw_circle :: proc "contextless" (draw: ^Draw, center: b2.Vec2, radius: f32, co
 }
 
 draw_solid_circle :: proc "contextless" (draw: ^Draw, transform: b2.Transform, radius: f32, color: b2.HexColor) {
-	// todo
+	context = g_context
+	add_solid_circle(&draw.solidCircles, transform, radius, color)
 }
 
 draw_solid_capsule :: proc "contextless" (draw: ^Draw, p1, p2: b2.Vec2, radius: f32, color: b2.HexColor) {
