@@ -1,7 +1,7 @@
 package main
 
+import b2 "../odin-box2d"
 import im "../odin-imgui"
-import b2 "vendor:box2d"
 
 BodyType :: struct {
 	using sample:       Sample,
@@ -140,16 +140,16 @@ Weeble :: struct {
 }
 
 @(private = "file")
-friction_callback :: proc "c" (frictionA: f32, userMaterialIdA: i32, frictionB: f32, userMaterialIdB: i32) -> f32 {
+friction_callback :: proc "c" (frictionA: f32, userMaterialIdA: u64, frictionB: f32, userMaterialIdB: u64) -> f32 {
 	return 0.1
 }
 
 @(private = "file")
 restitution_callback :: proc "c" (
 	restitutionA: f32,
-	userMaterialIdA: i32,
+	userMaterialIdA: u64,
 	restitutionB: f32,
-	userMaterialIdB: i32,
+	userMaterialIdB: u64,
 ) -> f32 {
 	return 1.0
 }

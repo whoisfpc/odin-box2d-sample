@@ -4,3 +4,6 @@
 [submodule "odin-enkiTS"]
 	path = odin-enkiTS
 	url = https://github.com/whoisfpc/odin-enkiTS.git
+[submodule "odin-box2d"]
+	path = odin-box2d
+	url = https://github.com/whoisfpc/odin-box2d.git

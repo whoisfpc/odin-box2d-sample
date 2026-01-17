@@ -1,5 +1,6 @@
 package main
 
+import b2 "../odin-box2d"
 import enki "../odin-enkiTS"
 import im "../odin-imgui"
 import "../odin-imgui/imgui_impl_glfw"
@@ -11,7 +12,6 @@ import "core:math"
 import os "core:os/os2"
 import "core:strings"
 import gl "vendor:OpenGL"
-import b2 "vendor:box2d"
 import "vendor:glfw"
 
 g_context: runtime.Context
@@ -263,11 +263,11 @@ update_ui :: proc() {
 				im.Checkbox("Joints", &s_ctx.debug_draw.drawJoints)
 				im.Checkbox("Joint Extras", &s_ctx.debug_draw.drawJointExtras)
 				im.Checkbox("Bounds", &s_ctx.debug_draw.drawBounds)
-				im.Checkbox("Contact Points", &s_ctx.debug_draw.drawContacts)
+				im.Checkbox("Contact Points", &s_ctx.debug_draw.drawContactPoints)
 				im.Checkbox("Contact Normals", &s_ctx.debug_draw.drawContactNormals)
 				im.Checkbox("Contact Features", &s_ctx.debug_draw.drawContactFeatures)
-				im.Checkbox("Contact Forces", &s_ctx.debug_draw.drawContactImpulses)
-				im.Checkbox("Friction Forces", &s_ctx.debug_draw.drawFrictionImpulses)
+				im.Checkbox("Contact Forces", &s_ctx.debug_draw.drawContactForces)
+				im.Checkbox("Friction Forces", &s_ctx.debug_draw.drawFrictionForces)
 				im.Checkbox("Mass", &s_ctx.debug_draw.drawMass)
 				im.Checkbox("Body Names", &s_ctx.debug_draw.drawBodyNames)
 				im.Checkbox("Graph Colors", &s_ctx.debug_draw.drawGraphColors)
@@ -276,8 +276,8 @@ update_ui :: proc() {
 				im.Checkbox("Profile", &s_ctx.draw_profile)
 
 				im.PushItemWidth(80.0)
-				// im.InputFloat("Joint Scale", &s_context.debug_draw.jointScale)
-				// im.InputFloat("Force Scale", &s_context.debug_draw.forceScale)
+				im.InputFloat("Joint Scale", &s_ctx.debug_draw.jointScale)
+				im.InputFloat("Force Scale", &s_ctx.debug_draw.forceScale)
 				im.PopItemWidth()
 
 				button_sz := [2]f32{-1.0, 0.0}

@@ -1,5 +1,6 @@
 package main
 
+import b2 "../odin-box2d"
 import enki "../odin-enkiTS"
 import im "../odin-imgui"
 import "base:intrinsics"
@@ -9,7 +10,6 @@ import "core:math"
 import "core:os"
 import "core:slice"
 import "core:strings"
-import b2 "vendor:box2d"
 import "vendor:glfw"
 
 @(private = "file")
@@ -123,11 +123,11 @@ sample_context_load :: proc(ctx: ^Sample_Context) {
 	ctx.debug_draw.DrawCircleFcn = DrawCircleFcn
 	ctx.debug_draw.DrawSolidCircleFcn = DrawSolidCircleFcn
 	ctx.debug_draw.DrawSolidCapsuleFcn = DrawSolidCapsuleFcn
-	ctx.debug_draw.DrawSegmentFcn = DrawSegmentFcn
+	ctx.debug_draw.DrawLineFcn = DrawLineFcn
 	ctx.debug_draw.DrawTransformFcn = DrawTransformFcn
 	ctx.debug_draw.DrawPointFcn = DrawPointFcn
 	ctx.debug_draw.DrawStringFcn = DrawStringFcn
-	ctx.debug_draw.userContext = ctx
+	ctx.debug_draw._context = ctx
 	ctx.debug_draw.drawShapes = true
 	ctx.debug_draw.drawJoints = true
 
@@ -190,7 +190,7 @@ DrawSolidCapsuleFcn :: proc "c" (p1, p2: b2.Vec2, radius: f32, color: b2.HexColo
 }
 
 @(private = "file")
-DrawSegmentFcn :: proc "c" (p1, p2: b2.Vec2, color: b2.HexColor, ctx: rawptr) {
+DrawLineFcn :: proc "c" (p1, p2: b2.Vec2, color: b2.HexColor, ctx: rawptr) {
 	sample_ctx := cast(^Sample_Context)ctx
 	draw_line(sample_ctx.draw, p1, p2, color)
 }
@@ -563,23 +563,22 @@ sample_base_mouse_down :: proc "contextless" (sample: ^Sample, p: [2]f32, button
 			sample.mouse_body_id = b2.CreateBody(sample.world_id, bodyDef)
 
 			jointDef := b2.DefaultMotorJointDef()
-			jointDef.bodyIdA = sample.mouse_body_id
-			jointDef.bodyIdB = query_ctx.body_id
-			jointDef.linearOffset = -b2.Body_GetLocalPoint(query_ctx.body_id, p)
-			// jointDef.localFrameB.p = b2.Body_GetLocalPoint(query_ctx.body_id, p)
-			// jointDef.linearHertz = 7.5
-			// jointDef.linearDampingRatio = 1.0
+			jointDef.base.bodyIdA = sample.mouse_body_id
+			jointDef.base.bodyIdB = query_ctx.body_id
+			jointDef.base.localFrameB.p = b2.Body_GetLocalPoint(query_ctx.body_id, p)
+			jointDef.linearHertz = 7.5
+			jointDef.linearDampingRatio = 1.0
 
 			massData := b2.Body_GetMassData(query_ctx.body_id)
 			g := b2.Length(b2.World_GetGravity(sample.world_id))
 			mg := massData.mass * g
 
-			jointDef.maxForce = sample.mouse_force_scale * mg
+			jointDef.maxSpringForce = sample.mouse_force_scale * mg
 
 			if massData.mass > 0.0 {
 				// This acts like angular friction
 				lever := math.sqrt(massData.rotationalInertia / massData.mass)
-				jointDef.maxTorque = 0.25 * lever * mg
+				jointDef.maxVelocityTorque = 0.25 * lever * mg
 			}
 
 			sample.mouse_joint_id = b2.CreateMotorJoint(sample.world_id, jointDef)
@@ -596,7 +595,7 @@ sample_variant_mouse_down :: proc "contextless" (sample: ^Sample, p: [2]f32, but
 
 sample_base_mouse_up :: proc "contextless" (sample: ^Sample, p: [2]f32, button: i32) {
 	if b2.IS_NON_NULL(sample.mouse_joint_id) && button == glfw.MOUSE_BUTTON_1 {
-		b2.DestroyJoint(sample.mouse_joint_id)
+		b2.DestroyJoint(sample.mouse_joint_id, true)
 		sample.mouse_joint_id = b2.nullJointId
 
 		b2.DestroyBody(sample.mouse_body_id)

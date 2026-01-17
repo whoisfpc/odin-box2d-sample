@@ -1,10 +1,10 @@
 package main
 
+import b2 "../odin-box2d"
 import "core:fmt"
 import "core:mem"
 import os "core:os/os2"
 import gl "vendor:OpenGL"
-import b2 "vendor:box2d"
 import stbi "vendor:stb/image"
 import tt "vendor:stb/truetype"
 
@@ -112,7 +112,7 @@ make_orthographic_matrix :: proc(m: ^[16]f32, left, right, bottom, top, near, fa
 }
 
 get_view_bounds :: proc(camera: ^Camera) -> b2.AABB {
-	if camera.height > 0 || camera.width > 0 {
+	if camera.height == 0 || camera.width == 0 {
 		return b2.AABB{lowerBound = b2.Vec2_zero, upperBound = b2.Vec2_zero}
 	}
 	return b2.AABB {

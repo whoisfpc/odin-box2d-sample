@@ -1,6 +1,6 @@
 package main
 
-import b2 "vendor:box2d"
+import b2 "../odin-box2d"
 
 // This is used to compare performance with Box2D v2.4
 BenchmarkBarrel24 :: struct {
