@@ -8,6 +8,7 @@ BodyType :: struct {
 	attachmentId:       b2.BodyId,
 	secondAttachmentId: b2.BodyId,
 	platformId:         b2.BodyId,
+	secondPayloadId:    b2.BodyId,
 	touchingBodyId:     b2.BodyId,
 	floatingBodyId:     b2.BodyId,
 	type:               b2.BodyType,
@@ -67,25 +68,100 @@ BodyType_create :: proc(ctx: ^Sample_Context) -> ^Sample {
 	}
 
 	// Define platform
-	// {
-	// 	body_def := b2.DefaultBodyDef()
-	// 	body_def.type = sample.type
-	// 	body_def.isEnabled = sample.isEnabled
-	// 	body_def.position = {-4, 5}
-	// 	body_def.name = "platform"
-	// 	sample.platformId = b2.CreateBody(sample.world_id, body_def)
+	{
+		body_def := b2.DefaultBodyDef()
+		body_def.type = sample.type
+		body_def.isEnabled = sample.isEnabled
+		body_def.position = {-4, 5}
+		body_def.name = "platform"
+		sample.platformId = b2.CreateBody(sample.world_id, body_def)
 
-	// 	box := b2.MakeOffsetBox(0.5, 4, {4.0, 0}, b2.MakeRot(0.5 * b2.PI))
+		box := b2.MakeOffsetBox(0.5, 4, {4.0, 0}, b2.MakeRot(0.5 * b2.PI))
 
-	// 	shape_def := b2.DefaultShapeDef()
-	// 	shape_def.density = 2.0
-	// 	_ = b2.CreatePolygonShape(sample.platformId, shape_def, box)
+		shape_def := b2.DefaultShapeDef()
+		shape_def.density = 2.0
+		_ = b2.CreatePolygonShape(sample.platformId, shape_def, box)
 
-	// 	revolute_def := b2.DefaultRevoluteJointDef()
-	// 	pivot := b2.Vec2{-2, 5}
-	// }
+		revolute_def := b2.DefaultRevoluteJointDef()
+		pivot := b2.Vec2{-2, 5}
+		revolute_def.base.bodyIdA = sample.attachmentId
+		revolute_def.base.bodyIdB = sample.platformId
+		revolute_def.base.localFrameA.p = b2.Body_GetLocalPoint(sample.attachmentId, pivot)
+		revolute_def.base.localFrameB.p = b2.Body_GetLocalPoint(sample.platformId, pivot)
+		revolute_def.maxMotorTorque = 50
+		revolute_def.enableMotor = true
+		b2.CreateRevoluteJoint(sample.world_id, revolute_def)
 
-	// todo: other bodies
+		pivot = b2.Vec2{3, 5}
+		revolute_def.base.bodyIdA = sample.secondAttachmentId
+		revolute_def.base.bodyIdB = sample.platformId
+		revolute_def.base.localFrameA.p = b2.Body_GetLocalPoint(sample.secondAttachmentId, pivot)
+		revolute_def.base.localFrameB.p = b2.Body_GetLocalPoint(sample.platformId, pivot)
+		revolute_def.maxMotorTorque = 50
+		revolute_def.enableMotor = true
+		b2.CreateRevoluteJoint(sample.world_id, revolute_def)
+
+		prismatic_def := b2.DefaultPrismaticJointDef()
+		anchor := b2.Vec2{0, 5}
+		prismatic_def.base.bodyIdA = ground_id
+		prismatic_def.base.bodyIdB = sample.platformId
+		prismatic_def.base.localFrameA.p = b2.Body_GetLocalPoint(ground_id, anchor)
+		prismatic_def.base.localFrameB.p = b2.Body_GetLocalPoint(sample.platformId, pivot)
+		prismatic_def.maxMotorForce = 1000
+		prismatic_def.motorSpeed = 0
+		prismatic_def.enableMotor = true
+		prismatic_def.lowerTranslation = -10
+		prismatic_def.upperTranslation = 10
+		prismatic_def.enableLimit = true
+
+		b2.CreatePrismaticJoint(sample.world_id, prismatic_def)
+		sample.speed = 3.0
+	}
+
+	// Create a payload
+	{
+		body_def := b2.DefaultBodyDef()
+		body_def.type = .dynamicBody
+		body_def.position = {-3, 8}
+		body_def.name = "crate1"
+		body_id := b2.CreateBody(sample.world_id, body_def)
+
+		box := b2.MakeBox(0.75, 0.75)
+		shape_def := b2.DefaultShapeDef()
+		shape_def.density = 2.0
+		_ = b2.CreatePolygonShape(body_id, shape_def, box)
+	}
+
+	// Create a second payload
+	{
+		body_def := b2.DefaultBodyDef()
+		body_def.type = sample.type
+		body_def.isEnabled = sample.isEnabled
+		body_def.position = {2, 8}
+		body_def.name = "crate2"
+		sample.secondPayloadId = b2.CreateBody(sample.world_id, body_def)
+
+		box := b2.MakeBox(0.75, 0.75)
+		shape_def := b2.DefaultShapeDef()
+		shape_def.density = 2.0
+		_ = b2.CreatePolygonShape(sample.secondPayloadId, shape_def, box)
+	}
+
+	// Create a separate body on the ground
+	{
+		body_def := b2.DefaultBodyDef()
+		body_def.type = sample.type
+		body_def.isEnabled = sample.isEnabled
+		body_def.position = {8, 0.2}
+		body_def.name = "debris"
+		sample.touchingBodyId = b2.CreateBody(sample.world_id, body_def)
+
+		capsule := b2.Capsule{{0, 0}, {1, 0}, 0.25}
+
+		shape_def := b2.DefaultShapeDef()
+		shape_def.density = 2.0
+		_ = b2.CreateCapsuleShape(sample.touchingBodyId, shape_def, capsule)
+	}
 
 	// Create a separate floating body
 	{
@@ -109,6 +185,60 @@ BodyType_create :: proc(ctx: ^Sample_Context) -> ^Sample {
 
 BodyType_update_gui :: proc(sample: ^BodyType) {
 	// ctx := sample.ctx
+	font_size := im.GetFontSize()
+	height := 11 * font_size
+	im.SetNextWindowPos({0.5 * font_size, sample.camera.height - height - 2 * font_size}, .Once)
+	im.SetNextWindowSize({9 * font_size, height})
+	im.Begin("Body Type", nil, {.NoMove + .NoResize})
+
+	if im.RadioButton("Static", sample.type == .staticBody) {
+		sample.type = .staticBody
+
+		b2.Body_SetType(sample.platformId, .staticBody)
+		b2.Body_SetType(sample.secondAttachmentId, .staticBody)
+		b2.Body_SetType(sample.secondPayloadId, .staticBody)
+		b2.Body_SetType(sample.touchingBodyId, .staticBody)
+		b2.Body_SetType(sample.floatingBodyId, .staticBody)
+	}
+
+	if im.RadioButton("Kinematic", sample.type == .kinematicBody) {
+		sample.type = .kinematicBody
+
+		b2.Body_SetType(sample.platformId, .kinematicBody)
+		b2.Body_SetLinearVelocity(sample.platformId, {-sample.speed, 0})
+		b2.Body_SetAngularVelocity(sample.platformId, 0)
+
+		b2.Body_SetType(sample.secondAttachmentId, .kinematicBody)
+		b2.Body_SetLinearVelocity(sample.secondAttachmentId, b2.Vec2_zero)
+		b2.Body_SetAngularVelocity(sample.secondAttachmentId, 0)
+
+		b2.Body_SetType(sample.secondPayloadId, .kinematicBody)
+		b2.Body_SetType(sample.touchingBodyId, .kinematicBody)
+		b2.Body_SetType(sample.floatingBodyId, .kinematicBody)
+	}
+
+	if im.RadioButton("Dynamic", sample.type == .dynamicBody) {
+		sample.type = .dynamicBody
+
+		b2.Body_SetType(sample.platformId, .dynamicBody)
+		b2.Body_SetType(sample.secondAttachmentId, .dynamicBody)
+		b2.Body_SetType(sample.secondPayloadId, .dynamicBody)
+		b2.Body_SetType(sample.touchingBodyId, .dynamicBody)
+		b2.Body_SetType(sample.floatingBodyId, .dynamicBody)
+	}
+
+	if im.Checkbox("Enabled", &sample.isEnabled) {
+		if sample.isEnabled {
+			b2.Body_Enable(sample.attachmentId)
+			b2.Body_Enable(sample.secondPayloadId)
+			b2.Body_Enable(sample.floatingBodyId)
+		} else {
+			b2.Body_Disable(sample.attachmentId)
+			b2.Body_Disable(sample.secondPayloadId)
+			b2.Body_Disable(sample.floatingBodyId)
+		}
+	}
+	im.End()
 }
 
 BodyType_step :: proc(sample: ^BodyType) {
