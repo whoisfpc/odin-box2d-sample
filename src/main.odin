@@ -9,6 +9,7 @@ import "base:runtime"
 import "core:c"
 import "core:fmt"
 import "core:math"
+import "core:mem"
 import os "core:os/os2"
 import "core:strings"
 import gl "vendor:OpenGL"
@@ -30,6 +31,26 @@ s_right_mouse_down: bool
 
 @(private = "file")
 s_click_point_ws: [2]f32
+
+@(private = "file")
+alloc_fcn :: proc "c" (size: u32, alignment: i32) -> rawptr {
+	context = g_context
+	// Allocation must be a multiple of alignment or risk a seg fault
+	// https://en.cppreference.com/w/c/memory/aligned_alloc
+	size := int(size)
+	alignment := int(alignment)
+	assert(math.is_power_of_two(alignment))
+	size_aligned := ((size - 1) | (alignment - 1)) + 1
+	assert((size_aligned & (alignment - 1)) == 0)
+	ptr, _ := mem.alloc(size_aligned, alignment)
+	return ptr
+}
+
+@(private = "file")
+free_fcn :: proc "c" (ptr: rawptr) {
+	context = g_context
+	mem.free(ptr)
+}
 
 @(private = "file")
 assert_fcn :: proc "c" (condition, file_name: cstring, line_number: i32) -> i32 {
@@ -363,7 +384,7 @@ main :: proc() {
 	g_context = context
 	register_all_samples()
 
-	// todo: set allocator
+	b2.SetAllocator(alloc_fcn, free_fcn)
 	b2.SetAssertFcn(assert_fcn)
 
 	sample_context_load(&s_ctx)
