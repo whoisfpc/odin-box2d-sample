@@ -1,3 +1,4 @@
+#+private file
 package main
 
 import b2 "../odin-box2d"
@@ -15,24 +16,19 @@ import "core:strings"
 import gl "vendor:OpenGL"
 import "vendor:glfw"
 
+@(private)
 g_context: runtime.Context
 
-@(private = "file")
 s_ctx: Sample_Context
 
-@(private = "file")
 s_selection: i32
 
-@(private = "file")
 s_sample: ^Sample
 
-@(private = "file")
 s_right_mouse_down: bool
 
-@(private = "file")
 s_click_point_ws: [2]f32
 
-@(private = "file")
 alloc_fcn :: proc "c" (size: u32, alignment: i32) -> rawptr {
 	context = g_context
 	// Allocation must be a multiple of alignment or risk a seg fault
@@ -46,26 +42,22 @@ alloc_fcn :: proc "c" (size: u32, alignment: i32) -> rawptr {
 	return ptr
 }
 
-@(private = "file")
 free_fcn :: proc "c" (ptr: rawptr) {
 	context = g_context
 	mem.free(ptr)
 }
 
-@(private = "file")
 assert_fcn :: proc "c" (condition, file_name: cstring, line_number: i32) -> i32 {
 	context = g_context
 	fmt.printfln("SAMPLE ASSERTION: %s, %s, line %d", condition, file_name, line_number)
 	return 1
 }
 
-@(private = "file")
 glfw_error_callback :: proc "c" (error: c.int, description: cstring) {
 	context = g_context
 	fmt.eprintfln("GLFW error occurred. Code: %d. Description: %s", error, description)
 }
 
-@(private = "file")
 restart_sample :: proc() {
 	sample_variant_destroy(s_sample)
 	s_sample = nil
@@ -74,7 +66,6 @@ restart_sample :: proc() {
 	s_ctx.restart = false
 }
 
-@(private = "file")
 create_ui :: proc(window: glfw.WindowHandle) {
 	im.CHECKVERSION()
 	im.CreateContext()
@@ -117,20 +108,17 @@ create_ui :: proc(window: glfw.WindowHandle) {
 	}
 }
 
-@(private = "file")
 destroy_ui :: proc() {
 	imgui_impl_opengl3.Shutdown()
 	imgui_impl_glfw.Shutdown()
 	im.DestroyContext()
 }
 
-@(private = "file")
 resize_window_callback :: proc "c" (window: glfw.WindowHandle, width, heigth: c.int) {
 	s_ctx.camera.width = f32(width)
 	s_ctx.camera.height = f32(heigth)
 }
 
-@(private = "file")
 key_callback :: proc "c" (window: glfw.WindowHandle, key, scancode, action, mods: c.int) {
 	imgui_impl_glfw.KeyCallback(window, key, scancode, action, mods)
 	if im.GetIO().WantCaptureKeyboard {
@@ -182,12 +170,10 @@ key_callback :: proc "c" (window: glfw.WindowHandle, key, scancode, action, mods
 	}
 }
 
-@(private = "file")
 char_callback :: proc "c" (window: glfw.WindowHandle, codepoint: rune) {
 	imgui_impl_glfw.CharCallback(window, c.uint(codepoint))
 }
 
-@(private = "file")
 mouse_button_callback :: proc "c" (window: glfw.WindowHandle, button, action, mods: c.int) {
 	imgui_impl_glfw.MouseButtonCallback(window, button, action, mods)
 	if im.GetIO().WantCaptureMouse {
@@ -220,7 +206,6 @@ mouse_button_callback :: proc "c" (window: glfw.WindowHandle, button, action, mo
 	}
 }
 
-@(private = "file")
 cursor_pos_callback :: proc "c" (window: glfw.WindowHandle, xpos, ypos: f64) {
 	ps := [2]f32{f32(xpos), f32(ypos)}
 	imgui_impl_glfw.CursorPosCallback(window, f64(ps.x), f64(ps.y))
@@ -234,7 +219,6 @@ cursor_pos_callback :: proc "c" (window: glfw.WindowHandle, xpos, ypos: f64) {
 	}
 }
 
-@(private = "file")
 scroll_callback :: proc "c" (window: glfw.WindowHandle, xoffset, yoffset: f64) {
 	imgui_impl_glfw.ScrollCallback(window, xoffset, yoffset)
 	if im.GetIO().WantCaptureMouse {
@@ -248,7 +232,6 @@ scroll_callback :: proc "c" (window: glfw.WindowHandle, xoffset, yoffset: f64) {
 	}
 }
 
-@(private = "file")
 update_ui :: proc() {
 	max_works := i32(enki.GetNumHardwareThreads())
 
@@ -380,6 +363,7 @@ update_ui :: proc() {
 	}
 }
 
+@(private)
 main :: proc() {
 	g_context = context
 	register_all_samples()
