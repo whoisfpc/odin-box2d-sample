@@ -2,9 +2,11 @@ package main
 
 import b2 "../odin-box2d"
 import "core:fmt"
+import "core:math"
 import "core:mem"
 import os "core:os/os2"
 import gl "vendor:OpenGL"
+import "vendor:glfw"
 import stbi "vendor:stb/image"
 import tt "vendor:stb/truetype"
 
@@ -1214,9 +1216,83 @@ flush_text :: proc(font: ^Font, camera: ^Camera) {
 	clear(&font.vertices)
 }
 
+Background :: struct {
+	vao_id:             u32,
+	vbo_id:             u32,
+	program_id:         u32,
+	time_uniform:       i32,
+	resolution_uniform: i32,
+	base_color_uniform: i32,
+}
+
+@(private = "file")
+create_background :: proc() -> Background {
+	background: Background
+
+	background.program_id = create_program_from_files("data/background.vs", "data/background.fs")
+	background.time_uniform = gl.GetUniformLocation(background.program_id, "time")
+	background.resolution_uniform = gl.GetUniformLocation(background.program_id, "resolution")
+	background.base_color_uniform = gl.GetUniformLocation(background.program_id, "baseColor")
+
+	vertex_attribute: u32 = 0
+
+	// Generate
+	gl.GenVertexArrays(1, &background.vao_id)
+	gl.GenBuffers(1, &background.vbo_id)
+
+	gl.BindVertexArray(background.vao_id)
+	gl.EnableVertexAttribArray(vertex_attribute)
+
+	// Single quad
+	vertices := [?]b2.Vec2{{-1.0, 1.0}, {-1.0, -1.0}, {1.0, 1.0}, {1.0, -1.0}}
+	gl.BindBuffer(gl.ARRAY_BUFFER, background.vbo_id)
+	gl.BufferData(gl.ARRAY_BUFFER, size_of(vertices), raw_data(&vertices), gl.STATIC_DRAW)
+	gl.VertexAttribPointer(vertex_attribute, 2, gl.FLOAT, gl.FALSE, 0, uintptr(0))
+
+	check_opengl()
+
+	// Cleanup
+	gl.BindBuffer(gl.ARRAY_BUFFER, 0)
+	gl.BindVertexArray(0)
+
+	return background
+}
+
+@(private = "file")
+destroy_background :: proc(background: ^Background) {
+	if background.vao_id != 0 {
+		gl.DeleteVertexArrays(1, &background.vao_id)
+		gl.DeleteBuffers(1, &background.vbo_id)
+	}
+
+	if background.program_id != 0 {
+		gl.DeleteProgram(background.program_id)
+	}
+
+	background^ = {}
+}
+
+@(private = "file")
+render_background :: proc(background: ^Background, camera: ^Camera) {
+	gl.UseProgram(background.program_id)
+
+	time := f32(glfw.GetTime())
+	time = math.mod(time, 100.0)
+
+	gl.Uniform1f(background.time_uniform, time)
+	gl.Uniform2f(background.resolution_uniform, camera.width, camera.height)
+	gl.Uniform3f(background.base_color_uniform, 0.2, 0.2, 0.2)
+
+	gl.BindVertexArray(background.vao_id)
+	gl.BindBuffer(gl.ARRAY_BUFFER, background.vbo_id)
+	gl.DrawArrays(gl.TRIANGLE_STRIP, 0, 4)
+	gl.BindBuffer(gl.ARRAY_BUFFER, 0)
+	gl.BindVertexArray(0)
+	gl.UseProgram(0)
+}
+
 Draw :: struct {
-	// TODO
-	// Background background;
+	background:    Background,
 	points:        Point_Render,
 	lines:         Line_Render,
 	hollowCircles: Circle_Render,
@@ -1228,8 +1304,7 @@ Draw :: struct {
 
 draw_create :: proc() -> ^Draw {
 	draw := new(Draw)
-	// todo
-	//draw->background = CreateBackground();
+	draw.background = create_background()
 	draw.points = create_point_render()
 	draw.lines = create_line_render()
 	draw.hollowCircles = create_circles()
@@ -1241,8 +1316,7 @@ draw_create :: proc() -> ^Draw {
 }
 
 draw_destroy :: proc(draw: ^Draw) {
-	// todo
-	//DestroyBackground( &draw->background );
+	destroy_background(&draw.background)
 	destroy_point_render(&draw.points)
 	destroy_line_render(&draw.lines)
 	destroy_circles(&draw.hollowCircles)
@@ -1254,8 +1328,6 @@ draw_destroy :: proc(draw: ^Draw) {
 }
 
 draw_flush :: proc(draw: ^Draw, camera: ^Camera) {
-	// todo
-
 	// order matters
 	flush_solid_circles(&draw.solidCircles, camera)
 	flush_capsules(&draw.capsules, camera)
@@ -1353,5 +1425,6 @@ draw_world_string :: proc "contextless" (
 }
 
 draw_background :: proc "contextless" (draw: ^Draw, camera: ^Camera) {
-	// todo
+	context = g_context
+	render_background(&draw.background, camera)
 }
