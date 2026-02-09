@@ -5,7 +5,7 @@ Purpose: Short, actionable guidance for AI coding agents to be immediately produ
 ## Quick facts ✅
 - Language: **Odin** (requires odin dev-2025-12 as noted in `README.md`).
 - Graphics: **OpenGL + GLFW**, UI via **Dear ImGui** (bindings in `odin-imgui/`).
-- Physics: **Box2D** (bindings under `vendor:box2d`).
+- Physics: **Box2D** (bindings under `odin-box2d/`).
 - Tasking: **enkiTS** worker/task scheduler (binding in `odin-enkiTS/`).
 - Working directory MUST be the project root (main checks `data/droid_sans.ttf` and exits otherwise).
 
