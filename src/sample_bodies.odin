@@ -385,3 +385,66 @@ Weeble_destroy :: proc(sample: ^Weeble) {
 	sample_base_destroy(sample)
 	free(sample)
 }
+
+WakeTouching :: struct {
+	using sample: Sample,
+	ground_id:    b2.BodyId,
+}
+
+WakeTouching_create :: proc(ctx: ^Sample_Context) -> ^Sample {
+	sample := sample_generic_create(ctx, WakeTouching)
+
+	if ctx.restart == false {
+		ctx.camera.center = {0, 4}
+		ctx.camera.zoom = 8
+	}
+
+	{
+		body_def := b2.DefaultBodyDef()
+		sample.ground_id = b2.CreateBody(sample.world_id, body_def)
+
+		segment := b2.Segment{b2.Vec2{-20, 0}, b2.Vec2{20, 0}}
+		shape_def := b2.DefaultShapeDef()
+		_ = b2.CreateSegmentShape(sample.ground_id, shape_def, segment)
+	}
+
+	box := b2.MakeBox(0.5, 0.5)
+	shape_def := b2.DefaultShapeDef()
+	shape_def.density = 1.0
+
+	body_def := b2.DefaultBodyDef()
+	body_def.type = .dynamicBody
+
+	count :: 10
+
+	x: f32 = -1 * (count - 1)
+	for i in 0 ..< count {
+		body_def.position = {x, 4}
+		body_id := b2.CreateBody(sample.world_id, body_def)
+		b2.CreatePolygonShape(body_id, shape_def, box)
+		x += 2
+	}
+
+	return sample
+}
+
+WakeTouching_update_gui :: proc(sample: ^WakeTouching) {
+	ctx := sample.ctx
+	font_size := im.GetFontSize()
+	height := 5 * font_size
+	im.SetNextWindowPos({0.5 * font_size, sample.camera.height - height - 2 * font_size}, .Once)
+	im.SetNextWindowSize({10 * font_size, height})
+
+	im.Begin("Wake Touching", nil, {.NoResize})
+
+	if im.Button("Wake Touching") {
+		b2.Body_WakeTouching(sample.ground_id)
+	}
+
+	im.End()
+}
+
+WakeTouching_destroy :: proc(sample: ^WakeTouching) {
+	sample_base_destroy(sample)
+	free(sample)
+}
